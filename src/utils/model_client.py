@@ -21,7 +21,7 @@ PRIMARY_MODEL = "gemini-2.5-flash"
 FALLBACK_MODEL = "gemini-2.5-flash-lite"
 
 
-class RateLimitError(Exception):
+class RetryableError(Exception):
     pass
 
 
@@ -36,7 +36,7 @@ class ModelClient:
         reraise=True,
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=2, min=2, max=30),
-        retry=retry_if_exception_type(RateLimitError),
+        retry=retry_if_exception_type(RetryableError),
     )
     def _call(self, model: str, contents: list, response_schema: Type[T]) -> str:
         try:
@@ -52,7 +52,7 @@ class ModelClient:
             return response.text
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                raise RateLimitError(str(e)) from e
+                raise RetryableError(str(e)) from e
             raise
 
     def structured_call(
@@ -64,7 +64,7 @@ class ModelClient:
         model = FALLBACK_MODEL if prefer_lite else PRIMARY_MODEL
         try:
             raw = self._call(model, prompt_parts, response_schema)
-        except RateLimitError:
+        except RetryableError:
             raw = self._call(FALLBACK_MODEL, prompt_parts, response_schema)
 
         cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
