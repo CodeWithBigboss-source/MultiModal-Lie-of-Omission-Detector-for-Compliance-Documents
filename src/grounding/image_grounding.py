@@ -7,6 +7,10 @@ from PIL import Image
 import cv2
 import numpy as np
 
+from pydantic import BaseModel
+from src.utils.schemas import RegionVisibility
+from typing import Optional
+
 from src.utils.model_client import ModelClient
 from src.utils.schemas import ExtractedClaim, GroundingResult
 
@@ -28,7 +32,17 @@ Instructions:
 Return JSON matching the required schema exactly.
 """
 
+class _GroundingOnly(BaseModel):
+    region_visibility: RegionVisibility
+    description_of_what_is_seen: str
+    matches_claim: Optional[bool]
+    model_self_reported_certainty: float
+    image_quality_flag: Optional[str]
 
+raw = client.structured_call(
+    prompt_parts=[prompt, image],
+    response_schema=_GroundingOnly,
+)
 def _quality_flag(image: Image.Image) -> str | None:
     arr = np.array(image.convert("L"))
     laplacian_var = cv2.Laplacian(arr, cv2.CV_64F).var()
@@ -52,11 +66,17 @@ def ground_claim_against_image(
         claim_text=claim.claim_text,
         expected_region=claim.expected_region_or_field,
     )
-    result = client.structured_call(
-        prompt_parts=[prompt, image],
-        response_schema=GroundingResult,
-    )
-    result.claim_id = claim.claim_id
-    result.image_id = image_id
-    result.image_quality_flag = quality_flag or result.image_quality_flag
-    return result
+
+
+
+
+
+return GroundingResult(
+    claim_id=claim.claim_id,
+    image_id=image_id,
+    region_visibility=raw.region_visibility,
+    description_of_what_is_seen=raw.description_of_what_is_seen,
+    matches_claim=raw.matches_claim,
+    model_self_reported_certainty=raw.model_self_reported_certainty,
+    image_quality_flag=quality_flag or raw.image_quality_flag,
+)

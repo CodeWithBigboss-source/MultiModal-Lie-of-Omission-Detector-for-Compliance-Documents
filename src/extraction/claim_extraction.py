@@ -1,9 +1,22 @@
 """
 Step A — Claim extraction. Pure text reasoning, no images touched here.
+
+Key fix: we give Gemini a minimal _ClaimsOnly schema instead of the full
+ClaimExtractionResult. The model only fills in what it actually knows
+(the claims themselves). We attach document_id and domain ourselves in
+Python after validation — never ask the model to echo back values it
+wasn't told.
 """
 
+from pydantic import BaseModel
 from src.utils.model_client import ModelClient
-from src.utils.schemas import ClaimExtractionResult, Domain
+from src.utils.schemas import ClaimExtractionResult, ExtractedClaim, Domain
+
+
+# Internal schema — this is all Gemini ever sees
+class _ClaimsOnly(BaseModel):
+    claims: list[ExtractedClaim]
+
 
 DOMAIN_HINTS = {
     Domain.LOAN_APPLICATION: (
@@ -34,10 +47,14 @@ piece of visual evidence (photo, scanned document, ID card, etc).
 
 Rules:
 - Each claim must be atomic: one fact per claim, not a compound sentence.
-- For each claim, state exactly what visual region/object/field a reviewer would need
-  to SEE in order to check it.
+- For each claim, state exactly what visual region/object/field a reviewer would
+  need to SEE in order to check it.
+- Assign each claim a short unique claim_id like "c1", "c2", "c3".
+- For claim_type use one of: damage_description, financial_figure, identity_field,
+  credential_validity, medical_condition, location_description.
 - Skip claims that are pure opinion or that no image could ever verify.
-- Do not invent claims that aren't in the text.
+- Do not invent claims not present in the text.
+- requires_visual_evidence should be true for all claims you extract.
 
 Domain: {domain}
 Domain-specific guidance: {domain_hint}
@@ -47,7 +64,7 @@ Document text:
 {document_text}
 ---
 
-Return JSON matching the required schema exactly.
+Return a JSON object with a single key "claims" containing a list of claim objects.
 """
 
 
@@ -62,10 +79,16 @@ def extract_claims(
         domain_hint=DOMAIN_HINTS[domain],
         document_text=document_text,
     )
-    result = client.structured_call(
+
+    # Only ask Gemini to fill in the claims list — nothing else
+    raw = client.structured_call(
         prompt_parts=[prompt],
-        response_schema=ClaimExtractionResult,
+        response_schema=_ClaimsOnly,
     )
-    result.document_id = document_id
-    result.domain = domain
-    return result
+
+    # We attach document_id and domain ourselves — never ask the model to echo them
+    return ClaimExtractionResult(
+        document_id=document_id,
+        domain=domain,
+        claims=raw.claims,
+    )
