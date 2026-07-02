@@ -33,8 +33,7 @@ class ExtractedClaim(BaseModel):
                           "e.g. 'left rear door of vehicle', 'signature block', 'expiry date on license card'"
     )
     claim_type: str = Field(..., description="e.g. 'damage_description', 'financial_figure', 'identity_field', 'credential_validity'")
-    requires_visual_evidence: bool = True
-
+    requires_visual_evidence: bool = Field(..., description="Whether checking this claim requires visual evidence")
 
 class ClaimExtractionResult(BaseModel):
     document_id: str
@@ -59,11 +58,11 @@ class GroundingResult(BaseModel):
     region_visibility: RegionVisibility
     description_of_what_is_seen: str
     matches_claim: Optional[bool] = Field(
-        None, description="True/False only meaningful if region_visibility != NOT_VISIBLE. "
-                           "None means 'cannot determine'."
+    ..., description="True/False only meaningful if region_visibility != NOT_VISIBLE. "
+                      "Explicitly output null if it cannot be determined."
     )
     model_self_reported_certainty: float = Field(..., ge=0.0, le=1.0)
-    image_quality_flag: Optional[str] = Field(None, description="e.g. 'blurry', 'low_resolution', 'poor_lighting'")
+    image_quality_flag: Optional[str] = Field(..., description="e.g. 'blurry', 'low_resolution', 'poor_lighting'. Explicitly output null if no issue.")
 
 
 # ---------------------------------------------------------------------------

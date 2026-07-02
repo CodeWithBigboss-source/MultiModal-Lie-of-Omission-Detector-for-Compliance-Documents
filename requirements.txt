@@ -1,26 +1,26 @@
 # ---- Core LLM / VLM ----
-google-genai==1.3.0          # official Gemini SDK (text + vision, single client)
-python-dotenv==1.0.1          # load API keys from .env locally / Colab secrets
+google-genai>=1.3.0
+python-dotenv>=1.0.1
 
 # ---- Document + image handling ----
-pillow==10.4.0
-pypdf==4.3.1
-pdf2image==1.17.0
-pytesseract==0.3.13           # fallback OCR for scanned docs (local, free)
-opencv-python-headless==4.10.0.84   # image quality heuristics (blur, resolution)
+pillow>=10.4.0
+pypdf>=4.3.1
+pdf2image>=1.17.0
+pytesseract>=0.3.13
+opencv-python-headless>=4.10.0.84
 
 # ---- Structured data / schema validation ----
-pydantic==2.9.2                # enforce claim/verdict schemas on every LLM call
+pydantic>=2.9.2
 
 # ---- Orchestration ----
-tenacity==9.0.0                # retry/backoff for free-tier 429s
+tenacity>=9.0.0
 
 # ---- Backend (Phase 4) ----
-fastapi==0.115.0
-uvicorn==0.30.6
-python-multipart==0.0.12
+fastapi>=0.115.0
+uvicorn>=0.30.6
+python-multipart>=0.0.12
 
 # ---- Eval / experimentation ----
-pandas==2.2.3
-scikit-learn==1.5.2            # simple agreement/confusion-matrix metrics on gold set
-jupyter==1.1.1
+pandas>=2.2.3
+scikit-learn>=1.5.2
+jupyter>=1.1.1
