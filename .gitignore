@@ -1,0 +1,19 @@
+# secrets
+.env
+*.key
+
+# python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+venv/
+.venv/
+
+# data / outputs (keep repo light — sample data only, not full datasets)
+data/gold_eval/*.json
+!data/gold_eval/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# OS
+.DS_Store
