@@ -41,32 +41,30 @@ DOMAIN_HINTS = {
     ),
 }
 
-EXTRACTION_PROMPT_TEMPLATE = """You are a compliance analyst. Read the document text below and extract every
-atomic, independently-checkable claim that COULD be verified or contradicted by a
-piece of visual evidence (photo, scanned document, ID card, etc).
+EXTRACTION_PROMPT_TEMPLATE = """You are a compliance analyst. The text below may be a formal document OR
+plain user-written description of a claim or loss. Either way, extract every
+atomic, independently-checkable claim that could be verified by visual evidence.
 
 Rules:
-- Each claim must be atomic: one fact per claim, not a compound sentence.
-- For each claim, state exactly what visual region/object/field a reviewer would
-  need to SEE in order to check it.
-- Assign each claim a short unique claim_id like "c1", "c2", "c3".
-- For claim_type use one of: damage_description, financial_figure, identity_field,
+- Each claim must be atomic: one fact per claim.
+- Assign short unique IDs: c1, c2, c3 etc.
+- expected_region_or_field: be specific — "front left door panel",
+  "front bumper surface", "roof tiles", not just "damage".
+- claim_type: one of damage_description, financial_figure, identity_field,
   credential_validity, medical_condition, location_description.
-- Skip claims that are pure opinion or that no image could ever verify.
+- requires_visual_evidence: true for all claims you extract.
 - Do not invent claims not present in the text.
-- requires_visual_evidence should be true for all claims you extract.
 
 Domain: {domain}
-Domain-specific guidance: {domain_hint}
+Domain guidance: {domain_hint}
 
-Document text:
+Input text:
 ---
 {document_text}
 ---
 
-Return a JSON object with a single key "claims" containing a list of claim objects.
+Return JSON with a single key "claims" containing a list of claim objects.
 """
-
 
 def extract_claims(
     client: TextModelClient,     # <-- changed from ModelClient

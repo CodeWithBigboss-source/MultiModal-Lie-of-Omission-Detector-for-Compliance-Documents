@@ -28,23 +28,27 @@ class _GroundingOnly(BaseModel):
     image_quality_flag: Optional[str]
 
 
-GROUNDING_PROMPT_TEMPLATE = """You are examining a single photo/scan as evidence for one specific claim from a
-compliance document. Answer ONLY about what is visible in THIS image.
+GROUNDING_PROMPT_TEMPLATE = """You are a strict compliance evidence reviewer. 
 
-Claim being checked: "{claim_text}"
-Region/field that would need to be visible to check this claim: "{expected_region}"
+PHASE 1 — Describe ALL visible evidence in this image comprehensively and objectively.
+List every damaged area, every visible feature, every relevant detail you can see.
+Do NOT skip anything visible. Do NOT assume anything not visible.
 
-Instructions:
-- First determine whether that specific region/field is visible in the image at all.
-  Set region_visibility to one of: fully_visible, partially_visible, not_visible.
-- If not_visible, do not guess whether the claim is true or false.
-  Set matches_claim to null. Absence of a region is NOT the same as contradiction.
-- If visible, describe plainly what you see in description_of_what_is_seen, then
-  set matches_claim to true if it matches the claim, false if it contradicts it,
-  or null if ambiguous.
-- Set model_self_reported_certainty between 0.0 and 1.0 honestly.
-- Set image_quality_flag to blurry, low_resolution, poor_lighting if applicable,
-  otherwise set it to null.
+PHASE 2 — Now evaluate this specific claim against what you described in Phase 1:
+Claim: "{claim_text}"
+Expected region/field to verify: "{expected_region}"
+
+Strict rules:
+- region_visibility must reflect reality: if that specific region is NOT clearly
+  in the frame, set not_visible — even if other damage is present.
+- matches_claim: true only if the evidence directly confirms the claim.
+  false if it contradicts it. null if the region is absent or ambiguous.
+- description_of_what_is_seen: write your FULL Phase 1 observation here —
+  describe everything visible in the image, not just the claimed region.
+  This is the most important field — be specific and factual.
+- model_self_reported_certainty: be honest. If you cannot clearly see the
+  region, lower your certainty. Never hallucinate visibility.
+- image_quality_flag: blurry / low_resolution / poor_lighting or null.
 
 Return JSON matching the required schema exactly.
 """
