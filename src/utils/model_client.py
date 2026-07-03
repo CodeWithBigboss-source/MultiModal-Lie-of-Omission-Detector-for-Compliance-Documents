@@ -18,7 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 T = TypeVar("T", bound=BaseModel)
 
-PRIMARY_MODEL = "gemini-2.5-flash"
+PRIMARY_MODEL = "gemini-2.5-flash-lite"
 FALLBACK_MODEL = "gemini-2.5-flash-lite"
 
 
