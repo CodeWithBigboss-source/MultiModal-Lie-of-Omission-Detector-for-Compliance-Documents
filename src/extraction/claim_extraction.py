@@ -8,9 +8,9 @@ Python after validation — never ask the model to echo back values it
 wasn't told.
 """
 
-from pydantic import BaseModel
-from src.utils.model_client import ModelClient
+from src.utils.model_client import TextModelClient
 from src.utils.schemas import ClaimExtractionResult, ExtractedClaim, Domain
+from pydantic import BaseModel
 
 
 # Internal schema — this is all Gemini ever sees
@@ -69,7 +69,7 @@ Return a JSON object with a single key "claims" containing a list of claim objec
 
 
 def extract_claims(
-    client: ModelClient,
+    client: TextModelClient,     # <-- changed from ModelClient
     document_id: str,
     domain: Domain,
     document_text: str,
@@ -79,14 +79,10 @@ def extract_claims(
         domain_hint=DOMAIN_HINTS[domain],
         document_text=document_text,
     )
-
-    # Only ask Gemini to fill in the claims list — nothing else
     raw = client.structured_call(
-        prompt_parts=[prompt],
+        prompt=prompt,             # <-- Groq takes a single string, not a list
         response_schema=_ClaimsOnly,
     )
-
-    # We attach document_id and domain ourselves — never ask the model to echo them
     return ClaimExtractionResult(
         document_id=document_id,
         domain=domain,

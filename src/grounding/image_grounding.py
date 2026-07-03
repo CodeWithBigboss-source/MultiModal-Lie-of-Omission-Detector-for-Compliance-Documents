@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel
 
-from src.utils.model_client import ModelClient
+from src.utils.model_client import VisionModelClient
 from src.utils.schemas import (
     ExtractedClaim,
     GroundingResult,
@@ -63,7 +63,7 @@ def _quality_flag(image: Image.Image) -> str | None:
 
 
 def ground_claim_against_image(
-    client: ModelClient,
+    client: VisionModelClient,
     claim: ExtractedClaim,
     image: Image.Image,
     image_id: str,
