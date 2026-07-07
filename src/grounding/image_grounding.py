@@ -55,7 +55,11 @@ Using ONLY your Step 1 observations:
 - Is the expected region inside the camera frame?
   fully_visible / partially_visible / not_visible
 - If not_visible: matches_claim MUST be null. Do not guess.
-- If visible and damage matches claim: matches_claim = true
+- If the claimed region IS visible and what you see confirms the claim → 
+  matches_claim = true. You do NOT need to see the full vehicle. 
+  You only need to see the specific claimed region. If the left door 
+  is visible and damaged, that is sufficient to confirm a claim about 
+  the left door — period.
 - If visible and evidence contradicts claim: matches_claim = false
 - If visible but unclear: matches_claim = null
 
@@ -63,8 +67,10 @@ STEP 3 — CONFIDENCE:
 - Be honest. If you mapped the frame carefully and region is clearly absent → 
   model_self_reported_certainty should be HIGH (0.85-0.95).
 - If region is clearly visible and damage clearly matches → HIGH certainty.
-- Only go LOW if the image quality is poor or damage is genuinely ambiguous.
-
+- A claim about one specific part being confirmed by that specific part 
+  being clearly visible and damaged = HIGH certainty. Do not penalize 
+  for not seeing other parts of the vehicle.
+  
 description_of_what_is_seen: Write your complete Step 1 frame map here.
 image_quality_flag: blurry / low_resolution / poor_lighting / null
 
