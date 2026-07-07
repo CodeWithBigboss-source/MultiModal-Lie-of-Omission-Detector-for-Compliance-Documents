@@ -24,6 +24,12 @@ DOMAIN_HINTS = {
         "and identity. Expected evidence is often a document photo/scan (payslip, bank "
         "statement, ID card) rather than a scene photo."
     ),
+    Domain.VEHICLE_INSURANCE: (
+        "Focus on claims about specific damaged vehicle parts and their severity. "
+        "Each damaged part is a separate atomic claim. Expected evidence is a photo "
+        "of the vehicle. Be precise about location: left/right, front/rear, which panel. "
+        "Also extract claims about undamaged parts — these can be contradicted or confirmed."
+    ),
     Domain.HEALTH_INSURANCE: (
         "Focus on claims about diagnosis, treatment received, injury location/severity, "
         "and dates of service. Expected evidence is often medical photos, scan reports, "

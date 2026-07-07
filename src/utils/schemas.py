@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 class Domain(str, Enum):
     LOAN_APPLICATION = "loan_application"
+    VEHICLE_INSURANCE = "vehicle_insurance"
     HEALTH_INSURANCE = "health_insurance"
     EVIDENCE_REVIEW = "evidence_review"
     LICENSING_EMPLOYEE_VERIFICATION = "licensing_employee_verification"

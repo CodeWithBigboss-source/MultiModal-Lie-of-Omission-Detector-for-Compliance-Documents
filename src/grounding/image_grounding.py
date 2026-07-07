@@ -28,27 +28,45 @@ class _GroundingOnly(BaseModel):
     image_quality_flag: Optional[str]
 
 
-GROUNDING_PROMPT_TEMPLATE = """You are a strict compliance evidence reviewer. 
+GROUNDING_PROMPT_TEMPLATE = """You are a strict forensic evidence reviewer. Your ONLY job is to report 
+what is GEOMETRICALLY PRESENT within the camera frame. 
 
-PHASE 1 — Describe ALL visible evidence in this image comprehensively and objectively.
-List every damaged area, every visible feature, every relevant detail you can see.
-Do NOT skip anything visible. Do NOT assume anything not visible.
+ABSOLUTE RULES — violating these is a critical failure:
+- If a region is NOT within the camera frame boundary, it is NOT_VISIBLE. Period.
+- NEVER infer, assume, or guess about regions outside the frame.
+- NEVER say a region is visible because you expect it to be there.
+- A vehicle photo showing the LEFT side tells you NOTHING about the RIGHT side.
+- A vehicle photo showing the FRONT tells you NOTHING about the REAR.
+- When in doubt about visibility → not_visible.
 
-PHASE 2 — Now evaluate this specific claim against what you described in Phase 1:
+STEP 1 — MAP THE FRAME (do this before reading the claim):
+Answer these questions strictly about what is inside the camera frame:
+- Which side of the vehicle is shown? (left/right/front/rear/front-left angle etc.)
+- Which specific panels/components are clearly within the frame?
+- What damage is visible on those specific panels?
+- What panels are partially at the edge of the frame?
+- What panels/regions are completely outside the frame?
+
+STEP 2 — EVALUATE THE CLAIM:
 Claim: "{claim_text}"
-Expected region/field to verify: "{expected_region}"
+Expected region: "{expected_region}"
 
-Strict rules:
-- region_visibility must reflect reality: if that specific region is NOT clearly
-  in the frame, set not_visible — even if other damage is present.
-- matches_claim: true only if the evidence directly confirms the claim.
-  false if it contradicts it. null if the region is absent or ambiguous.
-- description_of_what_is_seen: write your FULL Phase 1 observation here —
-  describe everything visible in the image, not just the claimed region.
-  This is the most important field — be specific and factual.
-- model_self_reported_certainty: be honest. If you cannot clearly see the
-  region, lower your certainty. Never hallucinate visibility.
-- image_quality_flag: blurry / low_resolution / poor_lighting or null.
+Using ONLY your Step 1 observations:
+- Is the expected region inside the camera frame?
+  fully_visible / partially_visible / not_visible
+- If not_visible: matches_claim MUST be null. Do not guess.
+- If visible and damage matches claim: matches_claim = true
+- If visible and evidence contradicts claim: matches_claim = false
+- If visible but unclear: matches_claim = null
+
+STEP 3 — CONFIDENCE:
+- Be honest. If you mapped the frame carefully and region is clearly absent → 
+  model_self_reported_certainty should be HIGH (0.85-0.95).
+- If region is clearly visible and damage clearly matches → HIGH certainty.
+- Only go LOW if the image quality is poor or damage is genuinely ambiguous.
+
+description_of_what_is_seen: Write your complete Step 1 frame map here.
+image_quality_flag: blurry / low_resolution / poor_lighting / null
 
 Return JSON matching the required schema exactly.
 """
