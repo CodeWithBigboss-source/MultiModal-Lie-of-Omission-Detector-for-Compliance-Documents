@@ -24,7 +24,7 @@ def synthesize_verdict(
             claim_id=claim.claim_id,
             claim_text=claim.claim_text,
             verdict=Verdict.INSUFFICIENT_EVIDENCE,
-            confidence=0.0,
+            confidence=min(0.40, 0.0),
             supporting_grounding_ids=[],
         )
 
@@ -34,14 +34,14 @@ def synthesize_verdict(
     ]
 
     if not visible_groundings:
-        # Region not visible in ANY image — this is the lie-of-omission case.
-        # We are CONFIDENT it is missing, so confidence should be HIGH.
-        best_certainty = max(g.model_self_reported_certainty for g in groundings)
+        # Confidence here = claim substantiation level.
+        # Evidence is absent so claim cannot be substantiated = low confidence.
+        # We cap at 0.25 regardless of how certain we are the region is absent.
         return ClaimVerdict(
             claim_id=claim.claim_id,
             claim_text=claim.claim_text,
             verdict=Verdict.MISSING_EXPECTED_EVIDENCE,
-            confidence=max(best_certainty, 0.85),  # floor at 0.85 — we're sure it's not there
+            confidence=0.20,
             supporting_grounding_ids=[g.image_id for g in groundings],
         )
 
@@ -90,6 +90,6 @@ def synthesize_verdict(
         claim_id=claim.claim_id,
         claim_text=claim.claim_text,
         verdict=Verdict.INSUFFICIENT_EVIDENCE,
-        confidence=min(g.model_self_reported_certainty for g in visible_groundings),
+        confidence=min(0.40, min(g.model_self_reported_certainty for g in visible_groundings)),
         supporting_grounding_ids=[g.image_id for g in visible_groundings],
     )

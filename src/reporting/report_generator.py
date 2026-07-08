@@ -9,12 +9,15 @@ from src.utils.schemas import ComplianceReport
 
 
 VERDICT_ICONS = {
-    "Supported":                 "✔ SUPPORTED",
-    "Partially Supported":       "~ PARTIALLY SUPPORTED",
-    "Contradicted":              "✘ CONTRADICTED",
-    "Insufficient Evidence":     "? INSUFFICIENT EVIDENCE",
-    "Missing Expected Evidence": "! MISSING EXPECTED EVIDENCE",
+    "Supported":                 "SUPPORTED",
+    "Partially Supported":       "PARTIALLY SUPPORTED",
+    "Contradicted":              "CONTRADICTED",
+    "Insufficient Evidence":     "INSUFFICIENT EVIDENCE",
+    "Missing Expected Evidence": "MISSING EXPECTED EVIDENCE",
 }
+def sanitize(text: str) -> str:
+    """Strip characters outside latin-1 range that FPDF Helvetica cannot render."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
 class CompliancePDF(FPDF):
@@ -114,7 +117,8 @@ def generate_pdf_report(report: ComplianceReport, elapsed_seconds: float = 0) ->
         pdf.set_fill_color(r, g, b)
         pdf.set_font("Helvetica", "", 9)
 
-        claim_short = claim[:60] + "..." if len(claim) > 60 else claim
+        claim_short = sanitize(claim[:60] + "..." if len(claim) > 60 else claim)
+        verdict     = sanitize(verdict)
         row_h = 8
         pdf.cell(8,  row_h, str(i),              fill=True, border=1)
         pdf.cell(90, row_h, claim_short,          fill=True, border=1)
@@ -143,9 +147,9 @@ def generate_pdf_report(report: ComplianceReport, elapsed_seconds: float = 0) ->
             conf        = cv.confidence
             explanation = cv.explanation or ""
 
-        # Sanitize text — remove characters FPDF cannot render
-        def sanitize(text: str) -> str:
-            return text.encode("latin-1", errors="replace").decode("latin-1")
+        # # Sanitize text — remove characters FPDF cannot render
+        # def sanitize(text: str) -> str:
+        #     return text.encode("latin-1", errors="replace").decode("latin-1")
 
         claim       = sanitize(claim)
         explanation = sanitize(explanation)

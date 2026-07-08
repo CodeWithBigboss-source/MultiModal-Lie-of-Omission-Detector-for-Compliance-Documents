@@ -276,7 +276,7 @@ if st.session_state.report:
             with col_v:
                 st.markdown(f"**Verdict:** {icon} `{verdict_value}`")
             with col_c:
-                st.metric("Confidence", f"{confidence:.0%}")
+                st.metric("Substantiation Confidence", f"{confidence:.0%}")
 
     # ── Download options ──────────────────────────────────────────────────────
     st.markdown("---")
