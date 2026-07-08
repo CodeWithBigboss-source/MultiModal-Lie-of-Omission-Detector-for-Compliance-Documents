@@ -21,6 +21,8 @@ from src.utils.schemas import (
 # Internal schema — only what Gemini needs to fill in
 # claim_id and image_id are attached by us in Python, not by the model
 class _GroundingOnly(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     region_visibility: RegionVisibility
     description_of_what_is_seen: str
     matches_claim: Optional[bool]
