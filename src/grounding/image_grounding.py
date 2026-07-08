@@ -28,50 +28,42 @@ class _GroundingOnly(BaseModel):
     image_quality_flag: Optional[str]
 
 
-GROUNDING_PROMPT_TEMPLATE = """You are a strict forensic evidence reviewer. Your ONLY job is to report 
-what is GEOMETRICALLY PRESENT within the camera frame. 
+GROUNDING_PROMPT_TEMPLATE = """You are a forensic evidence reviewer. Your job is to evaluate ONE specific claim against ONE image.
 
-ABSOLUTE RULES — violating these is a critical failure:
-- If a region is NOT within the camera frame boundary, it is NOT_VISIBLE. Period.
-- NEVER infer, assume, or guess about regions outside the frame.
-- NEVER say a region is visible because you expect it to be there.
-- A vehicle photo showing the LEFT side tells you NOTHING about the RIGHT side.
-- A vehicle photo showing the FRONT tells you NOTHING about the REAR.
-- When in doubt about visibility → not_visible.
+═══ STEP 1 — FRAME MAPPING (read the image before reading the claim) ═══
+Precisely list:
+a) Camera angle: which side of the subject is shown? (front-left, left side only, rear, etc.)
+b) Every component clearly within the frame and its condition
+c) Every component partially at the frame edge
+d) What is completely outside the frame — do not infer its condition
 
-STEP 1 — MAP THE FRAME (do this before reading the claim):
-Answer these questions strictly about what is inside the camera frame:
-- Which side of the vehicle is shown? (left/right/front/rear/front-left angle etc.)
-- Which specific panels/components are clearly within the frame?
-- What damage is visible on those specific panels?
-- What panels are partially at the edge of the frame?
-- What panels/regions are completely outside the frame?
-
-STEP 2 — EVALUATE THE CLAIM:
+═══ STEP 2 — CLAIM EVALUATION ═══
 Claim: "{claim_text}"
-Expected region: "{expected_region}"
+Region to verify: "{expected_region}"
 
-Using ONLY your Step 1 observations:
-- Is the expected region inside the camera frame?
-  fully_visible / partially_visible / not_visible
-- If not_visible: matches_claim MUST be null. Do not guess.
-- If the claimed region IS visible and what you see confirms the claim → 
-  matches_claim = true. You do NOT need to see the full vehicle. 
-  You only need to see the specific claimed region. If the left door 
-  is visible and damaged, that is sufficient to confirm a claim about 
-  the left door — period.
-- If visible and evidence contradicts claim: matches_claim = false
-- If visible but unclear: matches_claim = null
+Answer strictly from Step 1 only:
 
-STEP 3 — CONFIDENCE:
-- Be honest. If you mapped the frame carefully and region is clearly absent → 
-  model_self_reported_certainty should be HIGH (0.85-0.95).
-- If region is clearly visible and damage clearly matches → HIGH certainty.
-- A claim about one specific part being confirmed by that specific part 
-  being clearly visible and damaged = HIGH certainty. Do not penalize 
-  for not seeing other parts of the vehicle.
-  
-description_of_what_is_seen: Write your complete Step 1 frame map here.
+VISIBILITY:
+- Is the expected region within the camera frame?
+- fully_visible = clearly in frame with enough detail to assess
+- partially_visible = at the edge, cut off, or obscured
+- not_visible = outside the frame or completely hidden
+
+MATCH:
+- If not_visible → matches_claim MUST be null. No exceptions.
+- If fully or partially visible AND condition confirms claim → true
+- If fully or partially visible AND condition contradicts claim → false
+- If visible but genuinely unclear → null
+
+CRITICAL RULES:
+1. You do NOT need the full subject in frame. If the claimed part is visible, that is enough.
+2. Never assume condition of parts outside the frame.
+3. If you see damage that clearly contradicts "minor scratches" or "no damage" → false immediately.
+4. High confidence when region is clearly absent from frame (0.85-0.95).
+5. High confidence when damage clearly matches or contradicts claim (0.85-0.95).
+6. Low confidence only for genuinely ambiguous image quality or partial occlusion.
+
+description_of_what_is_seen: your complete Step 1 frame map goes here.
 image_quality_flag: blurry / low_resolution / poor_lighting / null
 
 Return JSON matching the required schema exactly.

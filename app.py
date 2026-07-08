@@ -9,6 +9,9 @@ from PIL import Image
 from src.utils.model_client import TextModelClient, VisionModelClient
 from src.utils.schemas import Domain
 from src.pipeline import run_pipeline
+import time
+start_time = time.time()
+
 
 st.set_page_config(
     page_title="Compliance Evidence Analyzer",
@@ -126,7 +129,7 @@ if analyze_btn:
         st.error(f"API key error: {e}")
         st.stop()
 
-    with st.spinner("Analyzing evidence... this takes 15–30 seconds."):
+    with st.spinner("Analyzing evidence..."):
         try:
             image = Image.open(uploaded_file)
             report = run_pipeline(
@@ -138,6 +141,8 @@ if analyze_btn:
                 images={"evidence_img": image},
             )
             st.session_state.report = report
+            elapsed = time.time() - start_time
+            st.session_state.elapsed = elapsed
         except Exception as e:
             st.error(f"Analysis failed: {e}")
             st.stop()
@@ -147,7 +152,7 @@ if analyze_btn:
 # ---------------------------------------------------------------------------
 if st.session_state.report:
     report = st.session_state.report
-    st.success(f"Analysis complete — {len(report.claim_verdicts)} claims evaluated.")
+    st.success(f"Analysis complete — {len(report.claim_verdicts)} claims evaluated in {st.session_state.get('elapsed', 0):.1f} seconds.")
     st.subheader("📋 Compliance Report")
 
     for i, cv in enumerate(report.claim_verdicts, 1):
