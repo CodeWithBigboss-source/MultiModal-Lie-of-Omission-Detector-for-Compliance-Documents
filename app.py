@@ -81,14 +81,64 @@ st.markdown("---")
 
 col1, col2 = st.columns([1, 1])
 
+# ---------------------------------------------------------------------------
+# Input mode toggle
+# ---------------------------------------------------------------------------
+input_mode = st.radio(
+    "How do you want to provide your claim?",
+    options=["Type claim manually", "Upload a document (PDF, DOCX, TXT)"],
+    horizontal=True,
+    key=f"input_mode_{domain.value}",
+)
+
+st.markdown("---")
+col1, col2 = st.columns([1, 1])
+
 with col1:
-    st.subheader("📄 Your Claim")
-    claim_text = st.text_area(
-        label="Describe your claim in plain language",
-        placeholder="Example: My car's left front door is severely damaged. The rear bumper has minor scratches. The windshield is intact.",
-        height=200,
-        key=f"claim_{domain.value}",  # key resets when domain changes
-    )
+    if input_mode == "Type claim manually":
+        st.subheader("📄 Your Claim")
+        claim_text = st.text_area(
+            label="Describe your claim in plain language",
+            placeholder="Example: My car's left front door is severely damaged. The rear bumper has minor scratches. The windshield is intact.",
+            height=200,
+            key=f"claim_{domain.value}",
+        )
+        doc_images = {}
+        extraction_notes = []
+
+    else:
+        st.subheader("📂 Upload Document")
+        doc_file = st.file_uploader(
+            "Upload your claim document",
+            type=["pdf", "docx", "txt"],
+            key=f"doc_{domain.value}",
+        )
+        claim_text = ""
+        doc_images = {}
+        extraction_notes = []
+
+        if doc_file:
+            from src.ingestion.document_loader import load_document
+            with st.spinner("Extracting document content..."):
+                content = load_document(doc_file.read(), doc_file.name)
+            claim_text = content.extracted_text
+            doc_images = content.extracted_images
+            extraction_notes = content.extraction_notes
+
+            st.success(
+                f"Extracted from {doc_file.name} "
+                f"({content.page_count} page(s), "
+                f"{len(doc_images)} embedded image(s))"
+            )
+
+            if extraction_notes:
+                for note in extraction_notes:
+                    st.info(note)
+
+            if claim_text:
+                with st.expander("Preview extracted text", expanded=False):
+                    st.text(claim_text[:2000] + ("..." if len(claim_text) > 2000 else ""))
+
     document_id = st.text_input(
         "Reference ID",
         value="claim_001",
@@ -98,14 +148,14 @@ with col1:
 with col2:
     st.subheader("🖼️ Evidence Image")
     uploaded_file = st.file_uploader(
-        "Upload supporting image",
+        "Upload supporting image evidence",
         type=["jpg", "jpeg", "png", "webp"],
-        key=f"upload_{domain.value}",  # key resets when domain changes
+        key=f"upload_{domain.value}",
     )
     if uploaded_file:
         image = Image.open(uploaded_file)
         st.session_state.uploaded_image = image
-        st.image(image, caption="Uploaded evidence", use_container_width=True)
+        st.image(image, caption="Uploaded evidence", width='stretch')
 
 st.markdown("---")
 analyze_btn = st.button(
@@ -130,19 +180,29 @@ if analyze_btn:
         st.stop()
 
     with st.spinner("Analyzing evidence..."):
+        import time
+        start_time = time.time()
         try:
-            image = Image.open(uploaded_file)
+            # Merge evidence image with any images extracted from the document
+            all_images = {}
+            if uploaded_file:
+                all_images["evidence_img"] = Image.open(uploaded_file)
+            all_images.update(doc_images)  # add images extracted from PDF/DOCX
+
+            if not all_images:
+                st.error("Please provide at least one image as evidence.")
+                st.stop()
+
             report = run_pipeline(
                 text_client=text_client,
                 vision_client=vision_client,
                 document_id=document_id,
                 domain=domain,
                 document_text=claim_text,
-                images={"evidence_img": image},
+                images=all_images,
             )
             st.session_state.report = report
-            elapsed = time.time() - start_time
-            st.session_state.elapsed = elapsed
+            st.session_state.elapsed = time.time() - start_time
         except Exception as e:
             st.error(f"Analysis failed: {e}")
             st.stop()
