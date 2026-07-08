@@ -7,6 +7,10 @@ Step B runs in parallel across all claims — cuts runtime by ~60%.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
+import traceback
+import time
+
+
 
 from src.extraction.claim_extraction import extract_claims
 from src.grounding.image_grounding import ground_claim_against_image
@@ -55,17 +59,18 @@ def run_pipeline(
     # Steps B + C + D — parallel across all claims
     claim_verdicts = [None] * len(extraction.claims)
 
-    with ThreadPoolExecutor(max_workers=min(len(extraction.claims), 5)) as executor:
-        future_to_index = {
-            executor.submit(
-                _process_single_claim,
-                text_client,
-                vision_client,
-                claim,
-                images
-            ): i
-            for i, claim in enumerate(extraction.claims)
-        }
+    with ThreadPoolExecutor(max_workers=2) as executor:
+    future_to_index = {}
+    for i, claim in enumerate(extraction.claims):
+        future = executor.submit(
+            _process_single_claim,
+            text_client,
+            vision_client,
+            claim,
+            images
+        )
+        future_to_index[future] = i
+        time.sleep(0.5)  # stagger submissions to avoid rate limit burst
 
         for future in as_completed(future_to_index):
             index = future_to_index[future]
@@ -75,6 +80,7 @@ def run_pipeline(
                 # One claim failing should not crash the whole report
                 claim = extraction.claims[index]
                 print(f"Warning: claim {claim.claim_id} failed — {e}")
+                traceback.print_exc()
                 from src.utils.schemas import ClaimVerdict, Verdict
                 claim_verdicts[index] = ClaimVerdict(
                     claim_id=claim.claim_id,
