@@ -213,6 +213,9 @@ if analyze_btn:
 if st.session_state.report:
     report = st.session_state.report
     st.success(f"Analysis complete — {len(report.claim_verdicts)} claims evaluated in {st.session_state.get('elapsed', 0):.1f} seconds.")
+    # Show PII protection summary if any entities were masked
+    if report.overall_risk_note:
+        st.info(f"🔒 {report.overall_risk_note}")
     st.subheader("📋 Compliance Report")
 
     for i, cv in enumerate(report.claim_verdicts, 1):
