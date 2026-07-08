@@ -11,6 +11,8 @@ from src.utils.schemas import Domain
 from src.pipeline import run_pipeline
 import time
 start_time = time.time()
+from src.reporting.report_generator import generate_pdf_report
+from src.classification.document_classifier import classify_document
 
 
 st.set_page_config(
@@ -130,14 +132,44 @@ with col1:
                 f"({content.page_count} page(s), "
                 f"{len(doc_images)} embedded image(s))"
             )
+            if claim_text:
+                # Auto-classify document and suggest domain
+                with st.spinner("Classifying document type..."):
+                    try:
+                        text_client_temp = TextModelClient()
+                        classification = classify_document(text_client_temp, claim_text)
+
+                        if classification.confidence > 0.6:
+                            st.success(
+                                f"📋 Detected: **{classification.document_type.replace('_', ' ').title()}** "
+                                f"→ Suggested domain: **{classification.suggested_domain.value.replace('_', ' ').title()}** "
+                                f"({classification.confidence:.0%} confidence)"
+                            )
+                            # Auto-switch domain if different from current
+                            if classification.suggested_domain != st.session_state.selected_domain:
+                                st.info(
+                                    f"💡 Auto-switching domain to "
+                                    f"**{classification.suggested_domain.value.replace('_', ' ').title()}** "
+                                    f"based on document content. You can override this in the sidebar."
+                                )
+                                st.session_state.selected_domain = classification.suggested_domain
+                                st.rerun()
+                        else:
+                            st.warning(
+                                f"Document type unclear ({classification.document_type}). "
+                                f"Please select the correct domain from the sidebar."
+                            )
+                    except Exception:
+                        pass  # Classification is best-effort, don't block the user
+
+                with st.expander("Preview extracted text", expanded=False):
+                    st.text(claim_text[:2000] + ("..." if len(claim_text) > 2000 else ""))
 
             if extraction_notes:
                 for note in extraction_notes:
                     st.info(note)
 
-            if claim_text:
-                with st.expander("Preview extracted text", expanded=False):
-                    st.text(claim_text[:2000] + ("..." if len(claim_text) > 2000 else ""))
+            
 
     document_id = st.text_input(
         "Reference ID",
@@ -246,11 +278,30 @@ if st.session_state.report:
             with col_c:
                 st.metric("Confidence", f"{confidence:.0%}")
 
-    # Download
+    # ── Download options ──────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("⬇️ Download Report")
+    col_dl1, col_dl2 = st.columns(2)
+
     report_json = json.dumps(report.model_dump(), indent=2, default=str)
-    st.download_button(
-        label="⬇️ Download Report (JSON)",
-        data=report_json,
-        file_name=f"{document_id}_report.json",
-        mime="application/json",
-    )
+
+    with col_dl1:
+        st.download_button(
+            label="📄 Download PDF Report",
+            data=generate_pdf_report(
+                report,
+                elapsed_seconds=st.session_state.get("elapsed", 0)
+            ),
+            file_name=f"{document_id}_compliance_report.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+    with col_dl2:
+        st.download_button(
+            label="📊 Download JSON Report",
+            data=report_json,
+            file_name=f"{document_id}_compliance_report.json",
+            mime="application/json",
+            use_container_width=True,
+        )

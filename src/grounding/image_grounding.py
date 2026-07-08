@@ -30,42 +30,43 @@ class _GroundingOnly(BaseModel):
     image_quality_flag: Optional[str]
 
 
-GROUNDING_PROMPT_TEMPLATE = """You are a forensic evidence reviewer. Your job is to evaluate ONE specific claim against ONE image.
+GROUNDING_PROMPT_TEMPLATE = """You are a forensic evidence reviewer. Study the image carefully before reading anything below.
 
-═══ STEP 1 — FRAME MAPPING (read the image before reading the claim) ═══
-Precisely list:
-a) Camera angle: which side of the subject is shown? (front-left, left side only, rear, etc.)
-b) Every component clearly within the frame and its condition
-c) Every component partially at the frame edge
-d) What is completely outside the frame — do not infer its condition
+═══ STEP 1 — IDENTIFY CAMERA ANGLE AND FRAME BOUNDARIES ═══
+Before anything else, answer:
+- What is the primary camera angle? (e.g. front-left, left side, rear-right, etc.)
+- List ONLY the vehicle components that are PHYSICALLY WITHIN this camera frame.
+- Explicitly state what is NOT visible: "The right side is not visible. The rear is not visible."
 
-═══ STEP 2 — CLAIM EVALUATION ═══
+This step is mandatory. Do not skip it.
+
+═══ STEP 2 — EVALUATE THE CLAIM ═══
 Claim: "{claim_text}"
 Region to verify: "{expected_region}"
 
-Answer strictly from Step 1 only:
+Using ONLY your Step 1 list of visible components:
 
-VISIBILITY:
-- Is the expected region within the camera frame?
-- fully_visible = clearly in frame with enough detail to assess
-- partially_visible = at the edge, cut off, or obscured
-- not_visible = outside the frame or completely hidden
+HARD RULES — these override everything else:
+- If the expected region was NOT in your Step 1 visible list → region_visibility = not_visible
+- If region_visibility = not_visible → matches_claim MUST be null. No exceptions. Ever.
+- You CANNOT infer the condition of a region that is outside the camera frame.
+- Seeing one side of a vehicle tells you NOTHING about the opposite side.
+- Do not write phrases like "part of X is visible at the edge" unless it is literally at the pixel edge of the frame.
 
-MATCH:
-- If not_visible → matches_claim MUST be null. No exceptions.
-- If fully or partially visible AND condition confirms claim → true
-- If fully or partially visible AND condition contradicts claim → false
-- If visible but genuinely unclear → null
+IF REGION IS VISIBLE:
+- Describe exactly what you see in that specific region
+- matches_claim = true if condition matches the claim
+- matches_claim = false if condition directly contradicts the claim
+- matches_claim = null if genuinely ambiguous
 
-CRITICAL RULES:
-1. You do NOT need the full subject in frame. If the claimed part is visible, that is enough.
-2. Never assume condition of parts outside the frame.
-3. If you see damage that clearly contradicts "minor scratches" or "no damage" → false immediately.
-4. High confidence when region is clearly absent from frame (0.85-0.95).
-5. High confidence when damage clearly matches or contradicts claim (0.85-0.95).
-6. Low confidence only for genuinely ambiguous image quality or partial occlusion.
+CONFIDENCE RULES:
+- Region clearly absent from frame → certainty 0.90 (you are sure it is not there)
+- Region clearly visible and condition clearly matches → certainty 0.85-0.95
+- Region partially visible or condition ambiguous → certainty 0.50-0.70
+- Never inflate confidence when uncertain
 
-description_of_what_is_seen: your complete Step 1 frame map goes here.
+description_of_what_is_seen: Write your Step 1 frame analysis here — 
+list what IS visible and explicitly state what is NOT visible.
 image_quality_flag: blurry / low_resolution / poor_lighting / null
 
 Return JSON matching the required schema exactly.
