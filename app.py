@@ -4,16 +4,15 @@ load_dotenv()
 import streamlit as st
 import json
 import os
+import io
+import time
 from PIL import Image
 
 from src.utils.model_client import TextModelClient, VisionModelClient
 from src.utils.schemas import Domain
 from src.pipeline import run_pipeline
-import time
-start_time = time.time()
 from src.reporting.report_generator import generate_pdf_report
 from src.classification.document_classifier import classify_document
-
 
 st.set_page_config(
     page_title="Compliance Evidence Analyzer",
@@ -22,34 +21,45 @@ st.set_page_config(
 )
 
 DOMAIN_LABELS = {
-    Domain.VEHICLE_INSURANCE:                "🚗 Vehicle Insurance",
-    Domain.HEALTH_INSURANCE:                 "🏥 Health Insurance",
-    Domain.LOAN_APPLICATION:                 "💰 Loan Application",
-    Domain.EVIDENCE_REVIEW:                  "⚖️ Evidence Review",
-    Domain.LICENSING_EMPLOYEE_VERIFICATION:  "🪪 Licensing & Employee Verification",
+    Domain.VEHICLE_INSURANCE:               "🚗 Vehicle Insurance",
+    Domain.HEALTH_INSURANCE:                "🏥 Health Insurance",
+    Domain.LOAN_APPLICATION:                "💰 Loan Application",
+    Domain.EVIDENCE_REVIEW:                 "⚖️ Evidence Review",
+    Domain.LICENSING_EMPLOYEE_VERIFICATION: "🪪 Licensing & Employee Verification",
 }
 
 VERDICT_CONFIG = {
-    "Supported":                 ("✅", "green",  "Evidence clearly confirms this claim."),
-    "Partially Supported":       ("🔶", "orange", "Evidence partially confirms this claim."),
-    "Contradicted":              ("❌", "red",    "Evidence directly contradicts this claim."),
-    "Insufficient Evidence":     ("⚠️", "gray",   "Evidence is unclear or ambiguous."),
-    "Missing Expected Evidence": ("🚫", "red",    "Required region not visible in the image."),
+    "Supported":                ("✅", "green",  "Evidence clearly confirms this claim."),
+    "Partially Supported":      ("🔶", "orange", "Evidence partially confirms this claim."),
+    "Contradicted":             ("❌", "red",    "Evidence directly contradicts this claim."),
+    "Insufficient Evidence":    ("⚠️", "gray",   "Evidence is unclear or ambiguous."),
+    "Missing Expected Evidence":("🚫", "red",    "Required region not visible in the image."),
 }
 
-# ---------------------------------------------------------------------------
-# Session state — tracks domain so we can detect changes and reset
-# ---------------------------------------------------------------------------
-if "selected_domain" not in st.session_state:
-    st.session_state.selected_domain = Domain.VEHICLE_INSURANCE
-if "report" not in st.session_state:
-    st.session_state.report = None
-if "uploaded_image" not in st.session_state:
-    st.session_state.uploaded_image = None
+# ── Session state initialisation ──────────────────────────────
+defaults = {
+    "selected_domain":  Domain.VEHICLE_INSURANCE,
+    "report":           None,
+    "elapsed":          0,
+    # document upload persistence
+    "doc_bytes":        None,
+    "doc_name":         None,
+    "doc_claim_text":   "",
+    "doc_images":       {},
+    "doc_notes":        [],
+    "doc_page_count":   0,
+    # image upload persistence
+    "img_bytes":        None,
+    "img_name":         None,
+    # manual claim text persistence
+    "manual_claim":     "",
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
+
+# ── Sidebar ───────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Configuration")
 
@@ -60,11 +70,11 @@ with st.sidebar:
         index=0,
     )
 
-    # If domain changed → clear previous results and uploaded image
+    # Domain changed — clear all file state
     if selected != st.session_state.selected_domain:
+        for k, v in defaults.items():
+            st.session_state[k] = v
         st.session_state.selected_domain = selected
-        st.session_state.report = None
-        st.session_state.uploaded_image = None
         st.rerun()
 
     domain = st.session_state.selected_domain
@@ -74,18 +84,11 @@ with st.sidebar:
     for verdict, (icon, _, desc) in VERDICT_CONFIG.items():
         st.markdown(f"{icon} **{verdict}** — {desc}")
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# ── Main ──────────────────────────────────────────────────────
 st.title("🔍 Compliance Evidence Analyzer")
 st.markdown(f"**Domain:** {DOMAIN_LABELS[domain]}")
 st.markdown("---")
 
-col1, col2 = st.columns([1, 1])
-
-# ---------------------------------------------------------------------------
-# Input mode toggle
-# ---------------------------------------------------------------------------
 input_mode = st.radio(
     "How do you want to provide your claim?",
     options=["Type claim manually", "Upload a document (PDF, DOCX, TXT)"],
@@ -96,80 +99,91 @@ input_mode = st.radio(
 st.markdown("---")
 col1, col2 = st.columns([1, 1])
 
+# ── Left column ───────────────────────────────────────────────
 with col1:
     if input_mode == "Type claim manually":
         st.subheader("📄 Your Claim")
-        claim_text = st.text_area(
+        claim_text_input = st.text_area(
             label="Describe your claim in plain language",
-            placeholder="Example: My car's left front door is severely damaged. The rear bumper has minor scratches. The windshield is intact.",
+            placeholder=(
+                "Example: My car's left front door is severely damaged. "
+                "The rear bumper has minor scratches. The windshield is intact."
+            ),
             height=200,
             key=f"claim_{domain.value}",
         )
-        doc_images = {}
-        extraction_notes = []
+        # Persist manual claim text in session state
+        if claim_text_input:
+            st.session_state.manual_claim = claim_text_input
+
+        # Clear doc state if mode switched
+        st.session_state.doc_bytes      = None
+        st.session_state.doc_name       = None
+        st.session_state.doc_claim_text = ""
+        st.session_state.doc_images     = {}
+
+        claim_text = st.session_state.manual_claim
 
     else:
         st.subheader("📂 Upload Document")
+
         doc_file = st.file_uploader(
             "Upload your claim document",
             type=["pdf", "docx", "txt"],
             key=f"doc_{domain.value}",
         )
-        claim_text = ""
-        doc_images = {}
-        extraction_notes = []
 
-        if doc_file:
-            from src.ingestion.document_loader import load_document
-            with st.spinner("Extracting document content..."):
-                content = load_document(doc_file.read(), doc_file.name)
-            claim_text = content.extracted_text
-            doc_images = content.extracted_images
-            extraction_notes = content.extraction_notes
+        # If a new file was just uploaded, process and save to session state
+        if doc_file is not None:
+            if doc_file.name != st.session_state.doc_name:
+                raw_bytes = doc_file.read()
+                from src.ingestion.document_loader import load_document
+                with st.spinner("Extracting document content..."):
+                    content = load_document(raw_bytes, doc_file.name)
 
-            st.success(
-                f"Extracted from {doc_file.name} "
-                f"({content.page_count} page(s), "
-                f"{len(doc_images)} embedded image(s))"
-            )
-            if claim_text:
-                # Auto-classify document and suggest domain
-                with st.spinner("Classifying document type..."):
+                # Save everything to session state
+                st.session_state.doc_bytes      = raw_bytes
+                st.session_state.doc_name       = doc_file.name
+                st.session_state.doc_claim_text = content.extracted_text
+                st.session_state.doc_images     = content.extracted_images
+                st.session_state.doc_notes      = content.extraction_notes
+                st.session_state.doc_page_count = content.page_count
+
+                # Auto-classify
+                if content.extracted_text:
                     try:
-                        text_client_temp = TextModelClient()
-                        classification = classify_document(text_client_temp, claim_text)
-
-                        if classification.confidence > 0.6:
-                            st.success(
-                                f"📋 Detected: **{classification.document_type.replace('_', ' ').title()}** "
-                                f"→ Suggested domain: **{classification.suggested_domain.value.replace('_', ' ').title()}** "
-                                f"({classification.confidence:.0%} confidence)"
+                        text_client_tmp = TextModelClient()
+                        classification  = classify_document(
+                            text_client_tmp, content.extracted_text
+                        )
+                        if (
+                            classification.confidence > 0.6
+                            and classification.suggested_domain
+                            != st.session_state.selected_domain
+                        ):
+                            st.session_state.selected_domain = (
+                                classification.suggested_domain
                             )
-                            # Auto-switch domain if different from current
-                            if classification.suggested_domain != st.session_state.selected_domain:
-                                st.info(
-                                    f"💡 Auto-switching domain to "
-                                    f"**{classification.suggested_domain.value.replace('_', ' ').title()}** "
-                                    f"based on document content. You can override this in the sidebar."
-                                )
-                                st.session_state.selected_domain = classification.suggested_domain
-                                st.rerun()
-                        else:
-                            st.warning(
-                                f"Document type unclear ({classification.document_type}). "
-                                f"Please select the correct domain from the sidebar."
-                            )
+                            st.rerun()
                     except Exception:
-                        pass  # Classification is best-effort, don't block the user
+                        pass
 
+        # Always show status from session state (persists across reruns)
+        if st.session_state.doc_name:
+            st.success(
+                f"Document loaded: **{st.session_state.doc_name}** "
+                f"({st.session_state.doc_page_count} page(s), "
+                f"{len(st.session_state.doc_images)} embedded image(s))"
+            )
+            for note in st.session_state.doc_notes:
+                st.info(note)
+            if st.session_state.doc_claim_text:
                 with st.expander("Preview extracted text", expanded=False):
-                    st.text(claim_text[:2000] + ("..." if len(claim_text) > 2000 else ""))
+                    preview = st.session_state.doc_claim_text
+                    st.text(preview[:2000] + ("..." if len(preview) > 2000 else ""))
 
-            if extraction_notes:
-                for note in extraction_notes:
-                    st.info(note)
-
-            
+        claim_text = st.session_state.doc_claim_text
+        st.session_state.manual_claim = ""
 
     document_id = st.text_input(
         "Reference ID",
@@ -177,18 +191,32 @@ with col1:
         key=f"docid_{domain.value}",
     )
 
+# ── Right column ──────────────────────────────────────────────
 with col2:
     st.subheader("🖼️ Evidence Image")
+
     uploaded_file = st.file_uploader(
         "Upload supporting image evidence",
         type=["jpg", "jpeg", "png", "webp"],
         key=f"upload_{domain.value}",
     )
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.session_state.uploaded_image = image
-        st.image(image, caption="Uploaded evidence", width='stretch')
 
+    # If a new image was uploaded, save bytes to session state
+    if uploaded_file is not None:
+        if uploaded_file.name != st.session_state.img_name:
+            st.session_state.img_bytes = uploaded_file.read()
+            st.session_state.img_name  = uploaded_file.name
+
+    # Always display from session state
+    if st.session_state.img_bytes:
+        img_display = Image.open(io.BytesIO(st.session_state.img_bytes))
+        st.image(
+            img_display,
+            caption=f"Evidence: {st.session_state.img_name}",
+            use_container_width=True
+        )
+
+# ── Analyse button ────────────────────────────────────────────
 st.markdown("---")
 analyze_btn = st.button(
     "🔍 Analyze Evidence",
@@ -197,11 +225,11 @@ analyze_btn = st.button(
 )
 
 if analyze_btn:
-    if not claim_text.strip():
-        st.error("Please enter your claim text.")
+    if not claim_text or not claim_text.strip():
+        st.error("Please provide your claim (type it or upload a document).")
         st.stop()
-    if not uploaded_file:
-        st.error("Please upload a supporting image.")
+    if not st.session_state.img_bytes and not st.session_state.doc_images:
+        st.error("Please upload at least one image as evidence.")
         st.stop()
 
     try:
@@ -212,18 +240,16 @@ if analyze_btn:
         st.stop()
 
     with st.spinner("Analyzing evidence..."):
-        import time
         start_time = time.time()
         try:
-            # Merge evidence image with any images extracted from the document
             all_images = {}
-            if uploaded_file:
-                all_images["evidence_img"] = Image.open(uploaded_file)
-            all_images.update(doc_images)  # add images extracted from PDF/DOCX
-
-            if not all_images:
-                st.error("Please provide at least one image as evidence.")
-                st.stop()
+            # Primary evidence image (from image uploader)
+            if st.session_state.img_bytes:
+                all_images["evidence_img"] = Image.open(
+                    io.BytesIO(st.session_state.img_bytes)
+                )
+            # Images extracted from uploaded document
+            all_images.update(st.session_state.doc_images)
 
             report = run_pipeline(
                 text_client=text_client,
@@ -233,25 +259,28 @@ if analyze_btn:
                 document_text=claim_text,
                 images=all_images,
             )
-            st.session_state.report = report
+            st.session_state.report  = report
             st.session_state.elapsed = time.time() - start_time
         except Exception as e:
             st.error(f"Analysis failed: {e}")
             st.stop()
 
-# ---------------------------------------------------------------------------
-# Results — show if report exists in session state
-# ---------------------------------------------------------------------------
+# ── Results ───────────────────────────────────────────────────
 if st.session_state.report:
-    report = st.session_state.report
-    st.success(f"Analysis complete — {len(report.claim_verdicts)} claims evaluated in {st.session_state.get('elapsed', 0):.1f} seconds.")
-    # Show PII protection summary if any entities were masked
+    report  = st.session_state.report
+    elapsed = st.session_state.get("elapsed", 0)
+
+    st.success(
+        f"Analysis complete — {len(report.claim_verdicts)} claims "
+        f"evaluated in {elapsed:.1f} seconds."
+    )
+
     if report.overall_risk_note:
         st.info(f"🔒 {report.overall_risk_note}")
+
     st.subheader("📋 Compliance Report")
 
     for i, cv in enumerate(report.claim_verdicts, 1):
-        # Handle both dict and object (defensive)
         if isinstance(cv, dict):
             verdict_value = cv["verdict"]
             claim_txt     = cv["claim_text"]
@@ -271,33 +300,32 @@ if st.session_state.report:
         ):
             st.markdown(f"**Claim:** {claim_txt}")
             st.markdown(f"**Explanation:** {explanation}")
-
             col_v, col_c = st.columns([1, 1])
             with col_v:
                 st.markdown(f"**Verdict:** {icon} `{verdict_value}`")
             with col_c:
                 st.metric("Substantiation Confidence", f"{confidence:.0%}")
 
-    # ── Download options ──────────────────────────────────────────────────────
+    # ── Downloads ─────────────────────────────────────────────
     st.markdown("---")
     st.subheader("⬇️ Download Report")
     col_dl1, col_dl2 = st.columns(2)
 
-    report_json = json.dumps(report.model_dump(), indent=2, default=str)
-
     with col_dl1:
-        st.download_button(
-            label="📄 Download PDF Report",
-            data=generate_pdf_report(
-                report,
-                elapsed_seconds=st.session_state.get("elapsed", 0)
-            ),
-            file_name=f"{document_id}_compliance_report.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
+        try:
+            pdf_bytes = generate_pdf_report(report, elapsed_seconds=elapsed)
+            st.download_button(
+                label="📄 Download PDF Report",
+                data=pdf_bytes,
+                file_name=f"{document_id}_compliance_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"PDF generation failed: {e}")
 
     with col_dl2:
+        report_json = json.dumps(report.model_dump(), indent=2, default=str)
         st.download_button(
             label="📊 Download JSON Report",
             data=report_json,
