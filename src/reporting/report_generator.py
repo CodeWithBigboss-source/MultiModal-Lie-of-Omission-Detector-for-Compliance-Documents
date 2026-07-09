@@ -199,6 +199,7 @@ def generate_pdf_report(
 
         # Explanation
         pdf.set_font("Helvetica", "B", 9)
+        pdf.set_x(15)
         pdf.cell(0, 7, "Explanation:", ln=True)
         pdf.set_font("Helvetica", "", 9)
         pdf.set_x(15)
