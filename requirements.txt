@@ -23,6 +23,7 @@ tenacity>=9.0.0
 fastapi>=0.115.0
 uvicorn>=0.30.6
 python-multipart>=0.0.12
+httpx>=0.27.0
 
 # ---- Eval / experimentation ----
 pandas>=2.2.3
