@@ -60,6 +60,12 @@ Rules:
   credential_validity, medical_condition, location_description.
 - requires_visual_evidence: true for all claims you extract.
 - Do not invent claims not present in the text.
+- If two claims express the same underlying fact in different words, 
+  keep only ONE — the more specific version.
+- Never extract the same claim twice even if the document states it 
+  multiple times or in multiple formats (narrative + table).
+- After extracting, review your list and remove any claim that is 
+  a restatement of another claim already in the list.
 
 Domain: {domain}
 Domain guidance: {domain_hint}
@@ -73,7 +79,7 @@ Return JSON with a single key "claims" containing a list of claim objects.
 """
 
 def extract_claims(
-    client: TextModelClient,     # <-- changed from ModelClient
+    client: TextModelClient,
     document_id: str,
     domain: Domain,
     document_text: str,
@@ -83,12 +89,40 @@ def extract_claims(
         domain_hint=DOMAIN_HINTS[domain],
         document_text=document_text,
     )
+
     raw = client.structured_call(
-        prompt=prompt,             # <-- Groq takes a single string, not a list
+        prompt_parts=[prompt],
         response_schema=_ClaimsOnly,
     )
+
+    # Deduplicate — remove semantically redundant claims
+    # Strategy: if two claims share more than 60% of their words, keep the longer one
+    unique_claims = []
+    for candidate in raw.claims:
+        candidate_words = set(candidate.claim_text.lower().split())
+        is_duplicate = False
+        for existing in unique_claims:
+            existing_words = set(existing.claim_text.lower().split())
+            if len(candidate_words) == 0 or len(existing_words) == 0:
+                continue
+            overlap = len(candidate_words & existing_words)
+            similarity = overlap / max(len(candidate_words), len(existing_words))
+            if similarity > 0.60:
+                # Keep the longer/more specific one
+                if len(candidate.claim_text) > len(existing.claim_text):
+                    unique_claims.remove(existing)
+                    unique_claims.append(candidate)
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            unique_claims.append(candidate)
+
+    # Re-assign clean sequential IDs after dedup
+    for idx, claim in enumerate(unique_claims, 1):
+        claim.claim_id = f"c{idx}"
+
     return ClaimExtractionResult(
         document_id=document_id,
         domain=domain,
-        claims=raw.claims,
+        claims=unique_claims,
     )
