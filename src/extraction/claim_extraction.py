@@ -91,9 +91,9 @@ def extract_claims(
     )
 
     raw = client.structured_call(
-        prompt_parts=[prompt],
-        response_schema=_ClaimsOnly,
-    )
+    prompt=prompt,
+    response_schema=_ClaimsOnly,
+)
 
     # Deduplicate — remove semantically redundant claims
     # Strategy: if two claims share more than 60% of their words, keep the longer one
