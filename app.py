@@ -246,7 +246,7 @@ with col2:
         st.image(
             img_display,
             caption=f"Evidence: {st.session_state.img_name}",
-            use_container_width=True
+            width='stretch'
         )
 
 # ── Analyse button ────────────────────────────────────────────
@@ -254,7 +254,7 @@ st.markdown("---")
 analyze_btn = st.button(
     "🔍 Analyze Evidence",
     type="primary",
-    use_container_width=True
+    width='stretch'
 )
 
 if analyze_btn:
@@ -365,7 +365,7 @@ if st.session_state.report:
                 data=pdf_bytes,
                 file_name=f"{document_id}_compliance_report.pdf",
                 mime="application/pdf",
-                use_container_width=True,
+                width='stretch',
             )
         except Exception as e:
             st.error(f"PDF generation failed: {e}")
@@ -377,5 +377,5 @@ if st.session_state.report:
             data=report_json,
             file_name=f"{document_id}_compliance_report.json",
             mime="application/json",
-            use_container_width=True,
+            width='stretch',
         )
