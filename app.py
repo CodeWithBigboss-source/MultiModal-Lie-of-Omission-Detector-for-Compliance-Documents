@@ -38,21 +38,19 @@ VERDICT_CONFIG = {
 
 # ── Session state initialisation ──────────────────────────────
 defaults = {
-    "selected_domain":  Domain.VEHICLE_INSURANCE,
-    "report":           None,
-    "elapsed":          0,
-    # document upload persistence
-    "doc_bytes":        None,
-    "doc_name":         None,
-    "doc_claim_text":   "",
-    "doc_images":       {},
-    "doc_notes":        [],
-    "doc_page_count":   0,
-    # image upload persistence
-    "img_bytes":        None,
-    "img_name":         None,
-    # manual claim text persistence
-    "manual_claim":     "",
+    "selected_domain":    Domain.VEHICLE_INSURANCE,
+    "report":             None,
+    "elapsed":            0,
+    "doc_bytes":          None,
+    "doc_name":           None,
+    "doc_claim_text":     "",
+    "doc_images":         {},
+    "doc_notes":          [],
+    "doc_page_count":     0,
+    "img_bytes":          None,
+    "img_name":           None,
+    "manual_claim":       "",
+    "additional_docs":    {},   # label -> text for multi-doc mode
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -191,6 +189,41 @@ with col1:
         key=f"docid_{domain.value}",
     )
 
+    # Multi-document upload — Phase 5
+    st.markdown("---")
+    st.markdown("**Additional Documents** *(optional — for cross-document analysis)*")
+    st.caption(
+        "Upload additional documents to check for contradictions across them. "
+        "Example: upload a court ruling AND a police report to detect factual conflicts."
+    )
+
+    extra_files = st.file_uploader(
+        "Upload additional documents",
+        type=["pdf", "docx", "txt"],
+        accept_multiple_files=True,
+        key=f"extra_docs_{domain.value}",
+    )
+
+    if extra_files:
+        from src.ingestion.document_loader import load_document
+        additional_docs = {}
+        for ef in extra_files:
+            raw = ef.read()
+            content = load_document(raw, ef.name)
+            if content.extracted_text:
+                label = ef.name.replace(" ", "_").replace(".", "_")
+                additional_docs[label] = content.extracted_text
+                # merge any images from additional docs
+                st.session_state.doc_images.update(content.extracted_images)
+        st.session_state.additional_docs = additional_docs
+        if additional_docs:
+            st.success(
+                f"{len(additional_docs)} additional document(s) loaded for "
+                f"cross-document analysis."
+            )
+    else:
+        st.session_state.additional_docs = {}
+
 # ── Right column ──────────────────────────────────────────────
 with col2:
     st.subheader("🖼️ Evidence Image")
@@ -258,6 +291,7 @@ if analyze_btn:
                 domain=domain,
                 document_text=claim_text,
                 images=all_images,
+                additional_documents=st.session_state.additional_docs or None,
             )
             st.session_state.report  = report
             st.session_state.elapsed = time.time() - start_time
@@ -276,7 +310,19 @@ if st.session_state.report:
     )
 
     if report.overall_risk_note:
-        st.info(f"🔒 {report.overall_risk_note}")
+        note = report.overall_risk_note
+        if "CROSS-DOCUMENT ANALYSIS" in note:
+            parts = note.split(" | ")
+            for part in parts:
+                if "CROSS-DOCUMENT" in part:
+                    if "contradiction(s) found" in part:
+                        st.error(f"⚔️ {part}")
+                    else:
+                        st.success(f"✅ {part}")
+                else:
+                    st.info(f"🔒 {part}")
+        else:
+            st.info(f"🔒 {note}")
 
     st.subheader("📋 Compliance Report")
 
