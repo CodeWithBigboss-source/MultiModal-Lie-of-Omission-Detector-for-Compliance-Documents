@@ -68,10 +68,27 @@ with st.sidebar:
         index=0,
     )
 
+    # FIX 1 — preserve uploaded files across domain switch
     if selected != st.session_state.selected_domain:
+        saved_img_bytes  = st.session_state.img_bytes
+        saved_img_name   = st.session_state.img_name
+        saved_doc_bytes  = st.session_state.doc_bytes
+        saved_doc_name   = st.session_state.doc_name
+        saved_doc_text   = st.session_state.doc_claim_text
+        saved_doc_images = st.session_state.doc_images
+        saved_doc_notes  = st.session_state.doc_notes
+        saved_doc_pages  = st.session_state.doc_page_count
         for k, v in defaults.items():
             st.session_state[k] = v
-        st.session_state.selected_domain = selected
+        st.session_state.selected_domain  = selected
+        st.session_state.img_bytes        = saved_img_bytes
+        st.session_state.img_name         = saved_img_name
+        st.session_state.doc_bytes        = saved_doc_bytes
+        st.session_state.doc_name         = saved_doc_name
+        st.session_state.doc_claim_text   = saved_doc_text
+        st.session_state.doc_images       = saved_doc_images
+        st.session_state.doc_notes        = saved_doc_notes
+        st.session_state.doc_page_count   = saved_doc_pages
         st.rerun()
 
     domain = st.session_state.selected_domain
@@ -119,10 +136,9 @@ with main_tab:
             if claim_text_input:
                 st.session_state.manual_claim = claim_text_input
 
-            st.session_state.doc_bytes      = None
-            st.session_state.doc_name       = None
-            st.session_state.doc_claim_text = ""
-            st.session_state.doc_images     = {}
+            # FIX 3 — removed the four lines that cleared doc state here
+            # They were wiping uploaded files on every rerun
+
             claim_text = st.session_state.manual_claim
 
         else:
@@ -147,21 +163,33 @@ with main_tab:
                     st.session_state.doc_notes      = content.extraction_notes
                     st.session_state.doc_page_count = content.page_count
 
+                    # FIX 2 — show suggestion only, never auto-rerun on classification
                     if content.extracted_text:
                         try:
                             text_client_tmp = TextModelClient()
                             classification  = classify_document(
                                 text_client_tmp, content.extracted_text
                             )
-                            if (
-                                classification.confidence > 0.6
-                                and classification.suggested_domain
-                                != st.session_state.selected_domain
-                            ):
-                                st.session_state.selected_domain = (
-                                    classification.suggested_domain
+                            if classification.confidence > 0.6:
+                                suggested = classification.suggested_domain
+                                if suggested != st.session_state.selected_domain:
+                                    st.warning(
+                                        f"💡 Detected: "
+                                        f"**{classification.document_type.replace('_', ' ').title()}**. "
+                                        f"Suggested domain: "
+                                        f"**{suggested.value.replace('_', ' ').title()}**. "
+                                        f"Switch in the sidebar if needed."
+                                    )
+                                else:
+                                    st.success(
+                                        f"📋 Document classified as: "
+                                        f"**{classification.document_type.replace('_', ' ').title()}**"
+                                    )
+                            else:
+                                st.warning(
+                                    "Document type unclear. "
+                                    "Please select the correct domain from the sidebar."
                                 )
-                                st.rerun()
                         except Exception:
                             pass
 
