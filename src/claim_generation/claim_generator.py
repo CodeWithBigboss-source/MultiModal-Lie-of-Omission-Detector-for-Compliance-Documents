@@ -11,18 +11,33 @@ from PIL import Image
 
 from src.utils.model_client import TextModelClient, VisionModelClient
 from src.claim_generation.form_schema import CAR_INSURANCE_CLAIM_SCHEMA, FormField
-
+from pydantic import field_validator
+from typing import Union
 
 class AIPrefilledFields(BaseModel):
     incident_type: Optional[str] = None
     incident_description: Optional[str] = None
     vehicle_make_model: Optional[str] = None
     vehicle_year: Optional[str] = None
-    damage_description: Optional[str] = None
-    damage_other_vehicles: Optional[str] = None
-    injury_description: Optional[str] = None
-    additional_information: Optional[str] = None
-    ai_observations: str = ""
+    damage_description: Optional[Union[str, list]] = None
+    damage_other_vehicles: Optional[Union[str, list]] = None
+    injury_description: Optional[Union[str, list]] = None
+    additional_information: Optional[Union[str, list]] = None
+    ai_observations: Union[str, list] = ""
+
+    @field_validator(
+        "damage_description",
+        "damage_other_vehicles",
+        "injury_description",
+        "additional_information",
+        "ai_observations",
+        mode="before"
+    )
+    @classmethod
+    def coerce_list_to_string(cls, v):
+        if isinstance(v, list):
+            return "\n".join(str(item) for item in v)
+        return v
 
 
 VISION_PREFILL_PROMPT = """You are a professional insurance damage assessor analyzing 
