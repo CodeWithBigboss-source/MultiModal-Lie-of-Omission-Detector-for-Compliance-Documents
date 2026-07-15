@@ -211,3 +211,155 @@ def generate_pdf_report(
         pdf.ln(4)
 
     return bytes(pdf.output())
+
+def generate_combined_pdf_report(
+    claim_document: str,
+    report: ComplianceReport,
+    elapsed_seconds: float = 0,
+) -> bytes:
+    """
+    Generates a single PDF containing:
+    1. The user's generated claim document
+    2. The compliance validation report
+    """
+    pdf = CompliancePDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+
+    # ── Part 1: Claim Document ────────────────────────────────
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_fill_color(20, 60, 100)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, "  PART 1 — INSURANCE CLAIM SUBMISSION", fill=True, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "", 9)
+    for line in sanitize(claim_document).split("\n"):
+        if line.strip().startswith("[") and line.strip().endswith("]"):
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.ln(3)
+            pdf.cell(0, 7, sanitize(line.strip()), ln=True)
+            pdf.set_font("Helvetica", "", 9)
+        elif line.strip() == "":
+            pdf.ln(2)
+        else:
+            pdf.set_x(15)
+            pdf.multi_cell(180, 6, sanitize(line))
+
+    # ── Divider ───────────────────────────────────────────────
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_fill_color(100, 20, 20)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, "  PART 2 — COMPLIANCE VALIDATION REPORT", fill=True, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    # ── Reuse existing report sections ────────────────────────
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "Validation Summary", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(60, 7, "Claims Evaluated:", border=0)
+    pdf.cell(0, 7, str(len(report.claim_verdicts)), ln=True)
+    pdf.cell(60, 7, "Analysis Time:", border=0)
+    pdf.cell(0, 7, f"{elapsed_seconds:.1f} seconds", ln=True)
+
+    if report.overall_risk_note:
+        pdf.ln(3)
+        pdf.set_fill_color(230, 245, 255)
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.multi_cell(0, 7, sanitize(f"Privacy: {report.overall_risk_note}"), fill=True)
+
+    pdf.ln(5)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(5)
+
+    # Verdict summary table
+    pdf.set_fill_color(50, 50, 50)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(8,  8, "#",          fill=True, border=1)
+    pdf.cell(90, 8, "Claim",      fill=True, border=1)
+    pdf.cell(55, 8, "Verdict",    fill=True, border=1)
+    pdf.cell(25, 8, "Confidence", fill=True, border=1)
+    pdf.ln()
+    pdf.set_text_color(0, 0, 0)
+
+    for i, cv in enumerate(report.claim_verdicts, 1):
+        if isinstance(cv, dict):
+            verdict = cv.get("verdict", "")
+            claim   = cv.get("claim_text", "")
+            conf    = cv.get("confidence", 0)
+            explanation = cv.get("explanation", "")
+        else:
+            verdict = cv.verdict.value
+            claim   = cv.claim_text
+            conf    = cv.confidence
+            explanation = cv.explanation or ""
+
+        r, g, b = VERDICT_COLORS.get(verdict, (240, 240, 240))
+        pdf.set_fill_color(r, g, b)
+        pdf.set_font("Helvetica", "", 9)
+        claim_short = sanitize(claim[:60] + "..." if len(claim) > 60 else claim)
+        pdf.cell(8,  8, str(i),             fill=True, border=1)
+        pdf.cell(90, 8, claim_short,         fill=True, border=1)
+        pdf.cell(55, 8, sanitize(verdict),   fill=True, border=1)
+        pdf.cell(25, 8, f"{conf:.0%}",       fill=True, border=1)
+        pdf.ln()
+
+    pdf.ln(6)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "Detailed Findings", ln=True)
+    pdf.ln(2)
+
+    for i, cv in enumerate(report.claim_verdicts, 1):
+        if isinstance(cv, dict):
+            verdict     = cv.get("verdict", "")
+            claim       = cv.get("claim_text", "")
+            conf        = cv.get("confidence", 0)
+            explanation = cv.get("explanation", "")
+        else:
+            verdict     = cv.verdict.value
+            claim       = cv.claim_text
+            conf        = cv.confidence
+            explanation = cv.explanation or ""
+
+        verdict     = sanitize(verdict)
+        claim       = sanitize(claim)
+        explanation = sanitize(explanation)
+
+        r, g, b = VERDICT_COLORS.get(
+            cv.get("verdict", "") if isinstance(cv, dict) else cv.verdict.value,
+            (240, 240, 240)
+        )
+        pdf.set_fill_color(r, g, b)
+        pdf.set_font("Helvetica", "B", 10)
+        verdict_label = sanitize(VERDICT_ICONS.get(
+            cv.get("verdict", "") if isinstance(cv, dict) else cv.verdict.value,
+            verdict
+        ))
+        pdf.cell(
+            0, 9,
+            sanitize(f"  Claim {i}: {verdict_label} ({conf:.0%} confidence)"),
+            fill=True, ln=True
+        )
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 7, "Claim:", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(15)
+        pdf.multi_cell(180, 7, claim)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_x(15)
+        pdf.cell(0, 7, "Explanation:", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(15)
+        pdf.multi_cell(180, 7, explanation)
+        pdf.ln(4)
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(4)
+
+    return bytes(pdf.output())

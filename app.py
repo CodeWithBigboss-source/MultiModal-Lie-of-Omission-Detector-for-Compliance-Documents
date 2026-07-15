@@ -14,6 +14,7 @@ from src.pipeline import run_pipeline
 from src.reporting.report_generator import generate_pdf_report
 from src.classification.document_classifier import classify_document
 from src.eval.evaluator import run_evaluation, format_report
+from src.reporting.report_generator import generate_pdf_report, generate_combined_pdf_report
 from src.claim_generation.claim_generator import prefill_from_evidence, generate_claim_document
 from src.claim_generation.form_schema import CAR_INSURANCE_CLAIM_SCHEMA, SECTIONS, get_fields_for_section
 import copy
@@ -56,13 +57,15 @@ defaults = {
     "manual_claim":     "",
     "additional_docs":  {},
     
-    "wizard_schema":        None,
-    "wizard_step":          0,
-    "wizard_complete":      False,
-    "wizard_observations":  "",
-    "wizard_img_bytes":     None,
-    "wizard_img_name":      None,
-    "generated_claim_doc":  "",
+    "wizard_schema":           None,
+    "wizard_step":             0,
+    "wizard_complete":         False,
+    "wizard_observations":     "",
+    "wizard_img_bytes":        None,
+    "wizard_img_name":         None,
+    "generated_claim_doc":     "",
+    "gen_validation_report":   None,
+    "gen_validation_elapsed":  0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -420,12 +423,12 @@ with main_tab:
 with generate_tab:
     st.markdown("## ✍️ AI-Powered Claim Generation")
     st.markdown(
-        "Upload your evidence and our AI will analyze it and help you "
-        "fill out a complete insurance claim form — step by step."
+        "Upload your evidence image. The AI will analyze it, "
+        "pre-fill your claim form, and generate a formal claim document. "
+        "You can then validate it and download a combined report."
     )
     st.markdown("---")
 
-    # ── Evidence upload ───────────────────────────────────────
     gen_uploaded = st.file_uploader(
         "Upload your evidence image to begin",
         type=["jpg", "jpeg", "png", "webp"],
@@ -440,12 +443,14 @@ with generate_tab:
             st.session_state.wizard_step         = 0
             st.session_state.wizard_complete     = False
             st.session_state.generated_claim_doc = ""
+            if "gen_validation_report" in st.session_state:
+                st.session_state.gen_validation_report = None
 
     if st.session_state.wizard_img_bytes:
         gen_img = Image.open(io.BytesIO(st.session_state.wizard_img_bytes))
         st.image(gen_img, caption="Evidence image", width='stretch')
 
-        # ── AI pre-fill button ────────────────────────────────
+        # ── AI pre-fill ───────────────────────────────────────
         if st.session_state.wizard_schema is None:
             if st.button(
                 "🤖 Analyze Evidence & Start Claim Form",
@@ -458,7 +463,7 @@ with generate_tab:
                     st.error(f"API key error: {e}")
                     st.stop()
 
-                with st.spinner("Analyzing evidence and pre-filling claim form..."):
+                with st.spinner("Analyzing evidence — pre-filling claim form..."):
                     try:
                         schema, observations = prefill_from_evidence(
                             vision_client_g, gen_img
@@ -471,41 +476,56 @@ with generate_tab:
                         st.error(f"Analysis failed: {e}")
                         st.stop()
 
-        # ── Wizard steps ──────────────────────────────────────
+        # ── Wizard ────────────────────────────────────────────
         if st.session_state.wizard_schema is not None and not st.session_state.wizard_complete:
             schema = st.session_state.wizard_schema
             step   = st.session_state.wizard_step
 
-            # Show AI observations
             if st.session_state.wizard_observations:
-                with st.expander("🔍 What the AI observed in your image", expanded=False):
+                with st.expander("🔍 AI observations from your evidence", expanded=True):
                     st.info(st.session_state.wizard_observations)
 
-            # Progress bar
             st.progress(
-                (step) / len(SECTIONS),
+                step / len(SECTIONS),
                 text=f"Step {step + 1} of {len(SECTIONS)}: {SECTIONS[step]}"
             )
-
             st.subheader(f"📋 {SECTIONS[step]}")
+
+            if SECTIONS[step] == "Policyholder Information":
+                st.caption(
+                    "ℹ️ The AI cannot determine your personal information. "
+                    "Please fill these fields manually."
+                )
+            else:
+                st.caption(
+                    "✨ Fields marked with *(AI pre-filled)* were detected from your evidence. "
+                    "Please review and edit if needed."
+                )
 
             section_fields = get_fields_for_section(SECTIONS[step])
             updated_fields = {}
 
+            # Track police report selection for conditional field
+            police_filed_val = ""
+
             for field in section_fields:
                 current_val = field.value or ""
-
-                # Show badge if AI pre-filled
                 label = field.label
                 if field.ai_filled:
-                    label = f"{field.label} ✨ *(AI pre-filled — please confirm)*"
+                    label = f"{field.label} *(AI pre-filled — please confirm)*"
+
+                # Conditional: hide police report number if "No" selected
+                if field.key == "police_report_number":
+                    if police_filed_val == "No":
+                        updated_fields[field.key] = ""
+                        continue
 
                 if field.field_type == "textarea":
                     val = st.text_area(
                         label,
                         value=current_val,
-                        height=120,
-                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        height=150,
+                        key=f"wiz_{step}_{field.key}",
                         placeholder=field.placeholder,
                     )
                 elif field.field_type == "yes_no":
@@ -515,43 +535,49 @@ with generate_tab:
                         label,
                         options=options,
                         index=idx,
-                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        key=f"wiz_{step}_{field.key}",
+                    )
+                    if field.key == "police_report_filed":
+                        police_filed_val = val
+                elif field.field_type == "date":
+                    val = st.text_input(
+                        label,
+                        value=current_val,
+                        key=f"wiz_{step}_{field.key}",
+                        placeholder="DD/MM/YYYY",
                     )
                 elif field.field_type == "number":
                     val = st.text_input(
                         label,
                         value=current_val,
-                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        key=f"wiz_{step}_{field.key}",
                         placeholder=field.placeholder,
                     )
                 else:
                     val = st.text_input(
                         label,
                         value=current_val,
-                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        key=f"wiz_{step}_{field.key}",
                         placeholder=field.placeholder,
                     )
 
                 updated_fields[field.key] = val
 
-            # Update schema with user input
-            for field in schema:
-                if field.key in updated_fields:
-                    field.value = updated_fields[field.key]
-                    if updated_fields[field.key]:
-                        field.user_confirmed = True
+            # Save user input to schema
+            for f in schema:
+                if f.key in updated_fields:
+                    f.value = updated_fields[f.key]
+                    if updated_fields[f.key]:
+                        f.user_confirmed = True
 
-            # Navigation buttons
             st.markdown("---")
-            nav_col1, nav_col2 = st.columns([1, 1])
-
-            with nav_col1:
+            nav1, nav2 = st.columns(2)
+            with nav1:
                 if step > 0:
                     if st.button("← Previous", use_container_width=True):
                         st.session_state.wizard_step -= 1
                         st.rerun()
-
-            with nav_col2:
+            with nav2:
                 if step < len(SECTIONS) - 1:
                     if st.button("Next →", type="primary", use_container_width=True):
                         st.session_state.wizard_step += 1
@@ -565,9 +591,8 @@ with generate_tab:
                         st.session_state.wizard_complete = True
                         st.rerun()
 
-        # ── Claim document generation ─────────────────────────
+        # ── Claim document + inline validation ────────────────
         if st.session_state.wizard_complete:
-            st.success("All sections complete. Generating your claim document...")
 
             if not st.session_state.generated_claim_doc:
                 try:
@@ -589,55 +614,131 @@ with generate_tab:
 
             if st.session_state.generated_claim_doc:
                 st.subheader("📄 Your Generated Claim Document")
-                st.text_area(
-                    "Review your claim — you can edit it before proceeding",
+                edited_claim = st.text_area(
+                    "Review and edit your claim if needed",
                     value=st.session_state.generated_claim_doc,
-                    height=400,
-                    key="final_claim_review",
+                    height=350,
+                    key="final_claim_edit",
                 )
 
                 st.markdown("---")
-                gc1, gc2, gc3 = st.columns(3)
+                st.subheader("🔍 Validate Claim Against Evidence")
+                st.markdown(
+                    "Click below to validate your claim against the uploaded evidence. "
+                    "The system will check every claim point and generate a combined PDF."
+                )
 
-                with gc1:
-                    st.download_button(
-                        label="⬇️ Download Claim (TXT)",
-                        data=st.session_state.generated_claim_doc,
-                        file_name="generated_claim.txt",
-                        mime="text/plain",
-                        use_container_width=True,
+                if st.button(
+                    "🔍 Validate & Generate Combined Report",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    try:
+                        text_client_v   = TextModelClient()
+                        vision_client_v = VisionModelClient()
+                    except ValueError as e:
+                        st.error(f"API key error: {e}")
+                        st.stop()
+
+                    with st.spinner("Validating claim against evidence..."):
+                        start_v = time.time()
+                        try:
+                            val_images = {
+                                "evidence_img": Image.open(
+                                    io.BytesIO(st.session_state.wizard_img_bytes)
+                                )
+                            }
+                            val_report = run_pipeline(
+                                text_client=text_client_v,
+                                vision_client=vision_client_v,
+                                document_id="generated_claim",
+                                domain=st.session_state.selected_domain,
+                                document_text=edited_claim,
+                                images=val_images,
+                            )
+                            elapsed_v = time.time() - start_v
+                            st.session_state.gen_validation_report = val_report
+                            st.session_state.gen_validation_elapsed = elapsed_v
+                        except Exception as e:
+                            st.error(f"Validation failed: {e}")
+                            st.stop()
+
+                # ── Show validation results inline ────────────
+                if st.session_state.get("gen_validation_report"):
+                    val_report = st.session_state.gen_validation_report
+                    elapsed_v  = st.session_state.get("gen_validation_elapsed", 0)
+
+                    st.success(
+                        f"Validation complete — {len(val_report.claim_verdicts)} "
+                        f"claims checked in {elapsed_v:.1f} seconds."
                     )
 
-                with gc2:
-                    if st.button(
-                        "🔍 Validate This Claim",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-                        # Pass generated claim to the Analyze tab
-                        st.session_state.manual_claim = (
-                            st.session_state.get("final_claim_review")
-                            or st.session_state.generated_claim_doc
-                        )
-                        st.session_state.img_bytes = st.session_state.wizard_img_bytes
-                        st.session_state.img_name  = st.session_state.wizard_img_name
-                        st.info(
-                            "✅ Claim and evidence transferred to the **Analyze Claim** tab. "
-                            "Click that tab and press **Analyze Evidence** to validate."
-                        )
+                    if val_report.overall_risk_note:
+                        st.info(f"🔒 {val_report.overall_risk_note}")
 
-                with gc3:
-                    if st.button(
-                        "🔄 Start Over",
-                        use_container_width=True,
-                    ):
-                        st.session_state.wizard_schema       = None
-                        st.session_state.wizard_step         = 0
-                        st.session_state.wizard_complete     = False
-                        st.session_state.generated_claim_doc = ""
-                        st.session_state.wizard_img_bytes    = None
-                        st.session_state.wizard_img_name     = None
-                        st.rerun()
+                    st.subheader("📋 Validation Results")
+                    for i, cv in enumerate(val_report.claim_verdicts, 1):
+                        if isinstance(cv, dict):
+                            verdict_value = cv["verdict"]
+                            claim_txt     = cv["claim_text"]
+                            confidence    = cv["confidence"]
+                            explanation   = cv["explanation"]
+                        else:
+                            verdict_value = cv.verdict.value
+                            claim_txt     = cv.claim_text
+                            confidence    = cv.confidence
+                            explanation   = cv.explanation
+
+                        icon, color, _ = VERDICT_CONFIG.get(
+                            verdict_value, ("❓", "gray", "")
+                        )
+                        with st.expander(
+                            f"Claim {i} — {icon} {verdict_value} ({confidence:.0%})",
+                            expanded=True
+                        ):
+                            st.markdown(f"**Claim:** {claim_txt}")
+                            st.markdown(f"**Explanation:** {explanation}")
+                            col_vv, col_cc = st.columns(2)
+                            with col_vv:
+                                st.markdown(f"**Verdict:** {icon} `{verdict_value}`")
+                            with col_cc:
+                                st.metric("Confidence", f"{confidence:.0%}")
+
+                    # ── Combined PDF download ─────────────────
+                    st.markdown("---")
+                    st.subheader("⬇️ Download Combined Report")
+                    try:
+                        combined_pdf = generate_combined_pdf_report(
+                            claim_document=edited_claim,
+                            report=val_report,
+                            elapsed_seconds=elapsed_v,
+                        )
+                        st.download_button(
+                            label="📄 Download Combined Claim + Validation PDF",
+                            data=combined_pdf,
+                            file_name="claim_and_validation_report.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                    except Exception as e:
+                        st.error(f"PDF generation failed: {e}")
+
+                # ── Start over ────────────────────────────────
+                st.markdown("---")
+                if st.button("🔄 Start Over", use_container_width=True):
+                    for k in [
+                        "wizard_schema", "wizard_step", "wizard_complete",
+                        "wizard_observations", "wizard_img_bytes", "wizard_img_name",
+                        "generated_claim_doc", "gen_validation_report",
+                    ]:
+                        st.session_state[k] = None if "schema" in k or "report" in k else (
+                            0 if "step" in k else (
+                                False if "complete" in k else (
+                                    "" if "bytes" not in k else None
+                                )
+                            )
+                        )
+                    st.rerun()
 
 # ═════════════════════════════════════════════════════════════
 # TAB 2 — EVALUATION DASHBOARD
