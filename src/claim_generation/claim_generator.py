@@ -40,59 +40,90 @@ class AIPrefilledFields(BaseModel):
         return v
 
 
-VISION_PREFILL_PROMPT = """You are a professional insurance damage assessor analyzing 
-photographic evidence to pre-fill an insurance claim form.
+VISION_PREFILL_PROMPT = """You are a forensic vehicle damage assessor. Your job is to 
+analyze this photograph and produce a detailed, professional damage report.
 
-Study the image thoroughly and fill in every field you can observe.
-Be SPECIFIC, DETAILED, and PROFESSIONAL. This is a formal insurance document.
+STEP 1 — IDENTIFY CAMERA ANGLE:
+Which side of the vehicle is shown? (front-left, left side, rear-right, etc.)
+List ONLY components physically within the camera frame.
+Explicitly state what is NOT visible.
 
-For damage_description: Write detailed bullet points for EVERY damaged component 
-you can see. For each damaged part state:
-- Which specific part (e.g. front left door panel, front bumper, hood)
-- Nature of damage (crumpled, dented, scratched, shattered, buckled, deformed)
-- Severity (minor / moderate / severe)
-Example format:
-"- Front left door panel: severely crumpled and buckled inward, structural deformation visible
-- Side mirror (driver side): displaced and misaligned due to door panel impact
-- Side skirt / rocker panel: bent and crushed inward beneath the door"
+STEP 2 — DOCUMENT ALL DAMAGE:
+For every damaged component you can see, write one bullet point stating:
+  - Exact component name (e.g. front left door panel, hood, front bumper)
+  - Type of damage (crumpled, dented, scratched, buckled, shattered, deployed)
+  - Severity (minor / moderate / severe)
 
-For incident_type: Determine from damage pattern. Options: Collision, Side Impact,
-Rear-End Collision, Head-On Collision, Weather Damage, Vandalism, Parking Damage, 
-Rollover, Unknown.
+Do NOT write vague observations like "the vehicle appears damaged."
+Write specific findings like:
+  "- Front left door panel: severely crumpled and buckled inward with visible structural deformation"
+  "- Driver side mirror: displaced downward and misaligned due to door impact"
+  "- Side skirt beneath front door: crushed inward approximately 3-4 inches"
 
-For incident_description: Write a professional paragraph describing what likely 
-happened based on the damage pattern. Use phrases like "Based on the visible damage 
-pattern, it appears the vehicle sustained..."
+STEP 3 — FILL ALL FIELDS:
+damage_description: paste your complete bullet-point damage list from Step 2.
+  This MUST be a detailed multi-line string with one bullet per damaged component.
+  NEVER leave this null if any damage is visible.
 
-For vehicle_make_model: Identify the vehicle make and model if visible.
-For vehicle_year: Estimate the year range if identifiable.
-For damage_other_vehicles: Describe any other vehicles visible in the image.
-For injury_description: Note any visible signs of injury or airbag deployment.
-For additional_information: Note anything else relevant — airbag deployment, 
-fluid leaks, structural integrity concerns.
-For ai_observations: Your complete objective description of everything in the image.
+incident_type: infer from damage pattern:
+  - Door/side damage → "Side Impact Collision"
+  - Front damage → "Head-On Collision" or "Front Impact Collision"
+  - Rear damage → "Rear-End Collision"
+  - Multiple areas → "Multi-Point Collision"
+  - No damage visible → "Unknown"
 
-CRITICAL: Never leave damage_description, incident_type, or incident_description 
-as null if there is ANY visible damage in the image. These are the most important fields.
+incident_description: write one professional paragraph starting with:
+  "Based on the visible damage pattern, the vehicle appears to have sustained..."
+  Describe what likely happened. Be specific about which side was impacted and severity.
+
+vehicle_make_model: identify make and model if badges or body shape are recognizable.
+  If uncertain, write the body type (e.g. "Compact hatchback, make unidentified").
+
+vehicle_year: estimate year range from body style (e.g. "2015-2020 approximate").
+
+damage_other_vehicles: describe any other vehicles visible in the image.
+  If none, write "No other vehicles visible in submitted evidence."
+
+injury_description: note airbag deployment, blood, or other injury indicators.
+  If none visible, write "No visible injury indicators in submitted evidence."
+
+additional_information: note anything else — fluid leaks, structural concerns,
+  towing required, total loss indicators.
+
+ai_observations: your complete Step 1 frame map — camera angle, what IS visible,
+  what is NOT visible. This should be 3-5 sentences minimum.
+
+CRITICAL RULES:
+- damage_description MUST contain specific bullet points for every damaged part
+- Never write "appears to be" or "possibly" for clearly visible damage
+- Never confuse the car's left/right with the camera's left/right
+- State camera angle first, then describe damage relative to camera angle
 
 Return JSON matching the required schema exactly.
 """
 
-
 CLAIM_DOCUMENT_PROMPT = """You are a professional insurance claims writer.
-Generate a formal, complete car insurance claim document based on the following 
-completed form data. Write it as a real insurance claim submission.
+Generate a complete, formal car insurance claim document from the form data below.
 
-Use professional language. Be specific and factual.
-Format it clearly with section headers.
-For fields marked UNKNOWN or empty, write "Not provided by claimant."
+IMPORTANT: The Damage Assessment section must be written as structured claim points.
+Each damage item must be a numbered claim point with full explanation.
+Format the damage section like this:
+
+DAMAGE CLAIM POINTS:
+1. [Component Name]: [Detailed description of damage, severity, and impact on vehicle function]
+2. [Component Name]: [Detailed description...]
+...
+
+Write the full document with all sections.
+Use professional language throughout.
+For fields marked UNKNOWN, write "To be provided by claimant."
+Include a declaration statement at the end.
 
 Form data:
 {form_data}
 
-Return JSON with a single key "claim_document" containing the full formatted claim text.
+Return JSON with a single key "claim_document" containing the complete formatted claim text.
 """
-
 
 class _ClaimDocument(BaseModel):
     claim_document: str

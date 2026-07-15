@@ -621,6 +621,15 @@ with generate_tab:
                     key="final_claim_edit",
                 )
 
+                
+                # Download claim only (before validation)
+                st.download_button(
+                    label="⬇️ Download Claim Document (TXT)",
+                    data=edited_claim,
+                    file_name="insurance_claim.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
                 st.markdown("---")
                 st.subheader("🔍 Validate Claim Against Evidence")
                 st.markdown(

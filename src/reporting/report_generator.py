@@ -11,13 +11,23 @@ from src.utils.schemas import ComplianceReport
 
 
 def sanitize(text: str) -> str:
-    """
-    Strip any character outside latin-1 range.
-    FPDF with built-in fonts only supports latin-1.
-    This must be called on EVERY string before it touches FPDF.
-    """
     if not isinstance(text, str):
         text = str(text)
+    # Replace common unicode punctuation with ASCII equivalents
+    # before encoding — encode("replace") turns them into ? which looks bad
+    replacements = {
+        "\u2014": "-",   # em dash —
+        "\u2013": "-",   # en dash –
+        "\u2018": "'",   # left single quote
+        "\u2019": "'",   # right single quote
+        "\u201c": '"',   # left double quote
+        "\u201d": '"',   # right double quote
+        "\u2026": "...", # ellipsis
+        "\u00b7": "-",   # middle dot
+        "\u2022": "-",   # bullet
+    }
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
