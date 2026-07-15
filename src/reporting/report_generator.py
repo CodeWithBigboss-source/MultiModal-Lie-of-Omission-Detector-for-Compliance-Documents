@@ -241,7 +241,7 @@ def generate_combined_pdf_report(
     pdf.set_font("Helvetica", "B", 13)
     pdf.set_fill_color(20, 60, 100)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 10, "  PART 1 — INSURANCE CLAIM SUBMISSION", fill=True, ln=True)
+    pdf.cell(0, 10, "  PART 1 - INSURANCE CLAIM SUBMISSION", fill=True, ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 
@@ -263,7 +263,7 @@ def generate_combined_pdf_report(
     pdf.set_font("Helvetica", "B", 13)
     pdf.set_fill_color(100, 20, 20)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 10, "  PART 2 — COMPLIANCE VALIDATION REPORT", fill=True, ln=True)
+    pdf.cell(0, 10, "  PART 2 - COMPLIANCE VALIDATION REPORT", fill=True, ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 

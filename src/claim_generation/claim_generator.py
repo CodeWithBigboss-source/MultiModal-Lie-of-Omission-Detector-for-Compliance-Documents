@@ -90,8 +90,15 @@ injury_description: note airbag deployment, blood, or other injury indicators.
 additional_information: note anything else — fluid leaks, structural concerns,
   towing required, total loss indicators.
 
-ai_observations: your complete Step 1 frame map — camera angle, what IS visible,
-  what is NOT visible. This should be 3-5 sentences minimum.
+ai_observations: combine Step 1 AND Step 2 into one complete summary paragraph.
+  State: camera angle, what components are in frame, what damage is visible on 
+  each component, severity, and what is NOT visible. 
+  Example: "The image shows the front-left side of a white compact vehicle.
+  The front left door panel is severely crumpled and buckled inward with visible 
+  structural deformation. The driver side mirror is displaced. The side skirt 
+  beneath the door is crushed inward. The rear of the vehicle and the right side 
+  are not visible in this frame."
+  This must be a complete, specific damage narrative — NOT just a frame description.
 
 CRITICAL RULES:
 - damage_description MUST contain specific bullet points for every damaged part

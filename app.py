@@ -485,6 +485,23 @@ with generate_tab:
                 with st.expander("🔍 AI observations from your evidence", expanded=True):
                     st.info(st.session_state.wizard_observations)
 
+            # Show AI pre-filled damage points prominently
+            schema = st.session_state.wizard_schema
+            damage_field = next(
+                (f for f in schema if f.key == "damage_description"), None
+            )
+            if damage_field and damage_field.value:
+                with st.expander(
+                    "✨ AI-Generated Damage Claim Points (go to Step 4 to edit)",
+                    expanded=True
+                ):
+                    st.success("The AI has generated the following damage claim points from your evidence:")
+                    st.text(damage_field.value)
+                    st.caption(
+                        "These will appear in your claim form under Damage Assessment. "
+                        "You can edit them in Step 4."
+                    )
+
             st.progress(
                 step / len(SECTIONS),
                 text=f"Step {step + 1} of {len(SECTIONS)}: {SECTIONS[step]}"
