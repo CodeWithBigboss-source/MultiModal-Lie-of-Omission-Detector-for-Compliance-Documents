@@ -14,6 +14,9 @@ from src.pipeline import run_pipeline
 from src.reporting.report_generator import generate_pdf_report
 from src.classification.document_classifier import classify_document
 from src.eval.evaluator import run_evaluation, format_report
+from src.claim_generation.claim_generator import prefill_from_evidence, generate_claim_document
+from src.claim_generation.form_schema import CAR_INSURANCE_CLAIM_SCHEMA, SECTIONS, get_fields_for_section
+import copy
 
 st.set_page_config(
     page_title="Compliance Evidence Analyzer",
@@ -52,6 +55,14 @@ defaults = {
     "img_name":         None,
     "manual_claim":     "",
     "additional_docs":  {},
+    
+    "wizard_schema":        None,
+    "wizard_step":          0,
+    "wizard_complete":      False,
+    "wizard_observations":  "",
+    "wizard_img_bytes":     None,
+    "wizard_img_name":      None,
+    "generated_claim_doc":  "",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -101,7 +112,11 @@ with st.sidebar:
 # ── Main title ────────────────────────────────────────────────
 st.title("🔍 Compliance Evidence Analyzer")
 
-main_tab, eval_tab = st.tabs(["📋 Analyze Claim", "📊 Evaluation Dashboard"])
+main_tab, generate_tab, eval_tab = st.tabs([
+    "📋 Analyze Claim",
+    "✍️ Generate Claim",
+    "📊 Evaluation Dashboard"
+])
 
 # ═════════════════════════════════════════════════════════════
 # TAB 1 — ANALYZE CLAIM
@@ -399,6 +414,230 @@ with main_tab:
                 use_container_width=True,
             )
 
+# ═════════════════════════════════════════════════════════════
+# TAB 2 — GENERATE CLAIM
+# ═════════════════════════════════════════════════════════════
+with generate_tab:
+    st.markdown("## ✍️ AI-Powered Claim Generation")
+    st.markdown(
+        "Upload your evidence and our AI will analyze it and help you "
+        "fill out a complete insurance claim form — step by step."
+    )
+    st.markdown("---")
+
+    # ── Evidence upload ───────────────────────────────────────
+    gen_uploaded = st.file_uploader(
+        "Upload your evidence image to begin",
+        type=["jpg", "jpeg", "png", "webp"],
+        key="gen_evidence_upload",
+    )
+
+    if gen_uploaded is not None:
+        if gen_uploaded.name != st.session_state.wizard_img_name:
+            st.session_state.wizard_img_bytes    = gen_uploaded.read()
+            st.session_state.wizard_img_name     = gen_uploaded.name
+            st.session_state.wizard_schema       = None
+            st.session_state.wizard_step         = 0
+            st.session_state.wizard_complete     = False
+            st.session_state.generated_claim_doc = ""
+
+    if st.session_state.wizard_img_bytes:
+        gen_img = Image.open(io.BytesIO(st.session_state.wizard_img_bytes))
+        st.image(gen_img, caption="Evidence image", width='stretch')
+
+        # ── AI pre-fill button ────────────────────────────────
+        if st.session_state.wizard_schema is None:
+            if st.button(
+                "🤖 Analyze Evidence & Start Claim Form",
+                type="primary",
+                use_container_width=True,
+            ):
+                try:
+                    vision_client_g = VisionModelClient()
+                except ValueError as e:
+                    st.error(f"API key error: {e}")
+                    st.stop()
+
+                with st.spinner("Analyzing evidence and pre-filling claim form..."):
+                    try:
+                        schema, observations = prefill_from_evidence(
+                            vision_client_g, gen_img
+                        )
+                        st.session_state.wizard_schema      = schema
+                        st.session_state.wizard_observations = observations
+                        st.session_state.wizard_step        = 0
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Analysis failed: {e}")
+                        st.stop()
+
+        # ── Wizard steps ──────────────────────────────────────
+        if st.session_state.wizard_schema is not None and not st.session_state.wizard_complete:
+            schema = st.session_state.wizard_schema
+            step   = st.session_state.wizard_step
+
+            # Show AI observations
+            if st.session_state.wizard_observations:
+                with st.expander("🔍 What the AI observed in your image", expanded=False):
+                    st.info(st.session_state.wizard_observations)
+
+            # Progress bar
+            st.progress(
+                (step) / len(SECTIONS),
+                text=f"Step {step + 1} of {len(SECTIONS)}: {SECTIONS[step]}"
+            )
+
+            st.subheader(f"📋 {SECTIONS[step]}")
+
+            section_fields = get_fields_for_section(SECTIONS[step])
+            updated_fields = {}
+
+            for field in section_fields:
+                current_val = field.value or ""
+
+                # Show badge if AI pre-filled
+                label = field.label
+                if field.ai_filled:
+                    label = f"{field.label} ✨ *(AI pre-filled — please confirm)*"
+
+                if field.field_type == "textarea":
+                    val = st.text_area(
+                        label,
+                        value=current_val,
+                        height=120,
+                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        placeholder=field.placeholder,
+                    )
+                elif field.field_type == "yes_no":
+                    options = ["", "Yes", "No"]
+                    idx = options.index(current_val) if current_val in options else 0
+                    val = st.selectbox(
+                        label,
+                        options=options,
+                        index=idx,
+                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                    )
+                elif field.field_type == "number":
+                    val = st.text_input(
+                        label,
+                        value=current_val,
+                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        placeholder=field.placeholder,
+                    )
+                else:
+                    val = st.text_input(
+                        label,
+                        value=current_val,
+                        key=f"wizard_{SECTIONS[step]}_{field.key}",
+                        placeholder=field.placeholder,
+                    )
+
+                updated_fields[field.key] = val
+
+            # Update schema with user input
+            for field in schema:
+                if field.key in updated_fields:
+                    field.value = updated_fields[field.key]
+                    if updated_fields[field.key]:
+                        field.user_confirmed = True
+
+            # Navigation buttons
+            st.markdown("---")
+            nav_col1, nav_col2 = st.columns([1, 1])
+
+            with nav_col1:
+                if step > 0:
+                    if st.button("← Previous", use_container_width=True):
+                        st.session_state.wizard_step -= 1
+                        st.rerun()
+
+            with nav_col2:
+                if step < len(SECTIONS) - 1:
+                    if st.button("Next →", type="primary", use_container_width=True):
+                        st.session_state.wizard_step += 1
+                        st.rerun()
+                else:
+                    if st.button(
+                        "✅ Generate Claim Document",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        st.session_state.wizard_complete = True
+                        st.rerun()
+
+        # ── Claim document generation ─────────────────────────
+        if st.session_state.wizard_complete:
+            st.success("All sections complete. Generating your claim document...")
+
+            if not st.session_state.generated_claim_doc:
+                try:
+                    text_client_g = TextModelClient()
+                except ValueError as e:
+                    st.error(f"API key error: {e}")
+                    st.stop()
+
+                with st.spinner("Writing your formal claim document..."):
+                    try:
+                        claim_doc = generate_claim_document(
+                            text_client_g,
+                            st.session_state.wizard_schema
+                        )
+                        st.session_state.generated_claim_doc = claim_doc
+                    except Exception as e:
+                        st.error(f"Claim generation failed: {e}")
+                        st.stop()
+
+            if st.session_state.generated_claim_doc:
+                st.subheader("📄 Your Generated Claim Document")
+                st.text_area(
+                    "Review your claim — you can edit it before proceeding",
+                    value=st.session_state.generated_claim_doc,
+                    height=400,
+                    key="final_claim_review",
+                )
+
+                st.markdown("---")
+                gc1, gc2, gc3 = st.columns(3)
+
+                with gc1:
+                    st.download_button(
+                        label="⬇️ Download Claim (TXT)",
+                        data=st.session_state.generated_claim_doc,
+                        file_name="generated_claim.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+
+                with gc2:
+                    if st.button(
+                        "🔍 Validate This Claim",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        # Pass generated claim to the Analyze tab
+                        st.session_state.manual_claim = (
+                            st.session_state.get("final_claim_review")
+                            or st.session_state.generated_claim_doc
+                        )
+                        st.session_state.img_bytes = st.session_state.wizard_img_bytes
+                        st.session_state.img_name  = st.session_state.wizard_img_name
+                        st.info(
+                            "✅ Claim and evidence transferred to the **Analyze Claim** tab. "
+                            "Click that tab and press **Analyze Evidence** to validate."
+                        )
+
+                with gc3:
+                    if st.button(
+                        "🔄 Start Over",
+                        use_container_width=True,
+                    ):
+                        st.session_state.wizard_schema       = None
+                        st.session_state.wizard_step         = 0
+                        st.session_state.wizard_complete     = False
+                        st.session_state.generated_claim_doc = ""
+                        st.session_state.wizard_img_bytes    = None
+                        st.session_state.wizard_img_name     = None
+                        st.rerun()
 
 # ═════════════════════════════════════════════════════════════
 # TAB 2 — EVALUATION DASHBOARD
