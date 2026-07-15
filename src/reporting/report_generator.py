@@ -373,3 +373,77 @@ def generate_combined_pdf_report(
         pdf.ln(4)
 
     return bytes(pdf.output())
+
+def generate_claim_form_pdf(
+    schema: list,
+    claim_document: str,
+) -> bytes:
+    """
+    Generates a PDF of the completed claim form
+    including AI-generated damage claim points.
+    """
+    pdf = CompliancePDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+
+    # Title
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_fill_color(20, 60, 100)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 12, "  CAR INSURANCE CLAIM FORM", fill=True, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    # Form fields by section
+    current_section = ""
+    for field in schema:
+        # Section header
+        if field.section != current_section:
+            current_section = field.section
+            pdf.ln(4)
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_fill_color(200, 220, 240)
+            pdf.cell(0, 8, sanitize(f"  {current_section}"), fill=True, ln=True)
+            pdf.ln(2)
+
+        value = sanitize(field.value or "Not provided")
+        label = sanitize(field.label)
+
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 6, label + ":", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+
+        # Multi-line for textarea fields
+        if field.field_type == "textarea":
+            pdf.set_x(15)
+            pdf.multi_cell(180, 6, value)
+        else:
+            pdf.set_x(15)
+            pdf.cell(0, 6, value, ln=True)
+
+        pdf.ln(2)
+
+    # Claim document section
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_fill_color(20, 60, 100)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, "  FORMAL CLAIM STATEMENT", fill=True, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "", 9)
+    for line in sanitize(claim_document).split("\n"):
+        if not line.strip():
+            pdf.ln(3)
+        elif line.strip().startswith("[") and line.strip().endswith("]"):
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.ln(2)
+            pdf.cell(0, 7, sanitize(line.strip()), ln=True)
+            pdf.set_font("Helvetica", "", 9)
+        else:
+            pdf.set_x(15)
+            pdf.multi_cell(180, 6, sanitize(line))
+
+    return bytes(pdf.output())

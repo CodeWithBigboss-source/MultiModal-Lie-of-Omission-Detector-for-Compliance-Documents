@@ -11,7 +11,11 @@ from PIL import Image
 from src.utils.model_client import TextModelClient, VisionModelClient
 from src.utils.schemas import Domain
 from src.pipeline import run_pipeline
-from src.reporting.report_generator import generate_pdf_report
+from src.reporting.report_generator import (
+    generate_pdf_report,
+    generate_combined_pdf_report,
+    generate_claim_form_pdf,
+)
 from src.classification.document_classifier import classify_document
 from src.eval.evaluator import run_evaluation, format_report
 from src.reporting.report_generator import generate_pdf_report, generate_combined_pdf_report
@@ -519,7 +523,10 @@ with generate_tab:
                     "Please review and edit if needed."
                 )
 
-            section_fields = get_fields_for_section(SECTIONS[step])
+            # Read from wizard_schema (has AI values), not original schema
+            section_fields = [
+                f for f in schema if f.section == SECTIONS[step]
+            ]
             updated_fields = {}
 
             # Track police report selection for conditional field
@@ -580,8 +587,8 @@ with generate_tab:
 
                 updated_fields[field.key] = val
 
-            # Save user input to schema
-            for f in schema:
+            # Save user input back to wizard_schema in session state
+            for f in st.session_state.wizard_schema:
                 if f.key in updated_fields:
                     f.value = updated_fields[f.key]
                     if updated_fields[f.key]:
@@ -640,13 +647,21 @@ with generate_tab:
 
                 
                 # Download claim only (before validation)
-                st.download_button(
-                    label="⬇️ Download Claim Document (TXT)",
-                    data=edited_claim,
-                    file_name="insurance_claim.txt",
-                    mime="text/plain",
-                    use_container_width=True,
-                )
+                try:
+                    claim_form_pdf = generate_claim_form_pdf(
+                        schema=st.session_state.wizard_schema,
+                        claim_document=edited_claim,
+                    )
+                    st.download_button(
+                        label="⬇️ Download Claim Form (PDF)",
+                        data=claim_form_pdf,
+                        file_name="insurance_claim_form.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                except Exception as e:
+                    st.error(f"Claim PDF generation failed: {e}")
+                    
                 st.markdown("---")
                 st.subheader("🔍 Validate Claim Against Evidence")
                 st.markdown(
