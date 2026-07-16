@@ -108,7 +108,13 @@ incident_description: Write 3-4 professional sentences starting with:
 
 vehicle_make_model: Identify make/model of {selected_vehicle} if possible.
 vehicle_year: Estimate year range if identifiable.
-damage_other_vehicles: Describe damage to the OTHER vehicle(s) in one sentence.
+damage_other_vehicles: ONLY fill this if another vehicle was DIRECTLY involved 
+in the collision with {selected_vehicle}. You need CLEAR visual evidence of 
+direct contact between the two vehicles — shared deformation points, overlapping 
+damage, or vehicles physically interlocked. If another vehicle is simply parked 
+nearby, in the background, or in a parking lot without clear collision evidence, 
+write exactly: "No other vehicles confirmed as involved in this incident." 
+Never assume a parked or stationary background vehicle is involved in the accident.
 injury_description: Note airbag deployment or injury indicators on {selected_vehicle}.
 additional_information: Fluid leaks, total loss indicators, towing requirement.
 ai_observations: Complete scene description including both vehicles.
@@ -236,9 +242,10 @@ def generate_claim_document(
 
 def build_validation_text(schema: list[FormField]) -> str:
     """
-    Build focused validation text from schema fields directly.
-    Uses bullet-point damage description rather than verbose claim document
-    so the pipeline extracts clean, specific claims to validate.
+    Build focused validation text from schema damage fields only.
+    Excludes additional_information and negative observations
+    (No fluid leaks, No airbag deployment etc) since these are
+    observations not verifiable claims.
     """
     lines = []
 
@@ -257,9 +264,19 @@ def build_validation_text(schema: list[FormField]) -> str:
     injuries = next(
         (f.value for f in schema if f.key == "injury_description" and f.value), ""
     )
-    additional = next(
-        (f.value for f in schema if f.key == "additional_information" and f.value), ""
+
+    # Negative prefixes that indicate observations not claims
+    negative_prefixes = (
+        "no ", "none", "not visible", "not observed",
+        "no fluid", "no airbag", "no other", "no damage",
+        "no visible", "no sign", "no indication",
     )
+
+    def is_positive_claim(line: str) -> bool:
+        stripped = line.strip().lower()
+        if not stripped:
+            return False
+        return not any(stripped.startswith(p) for p in negative_prefixes)
 
     if vehicle:
         lines.append(f"Vehicle: {vehicle}")
@@ -267,11 +284,21 @@ def build_validation_text(schema: list[FormField]) -> str:
         lines.append(f"Type of Claim: {incident_type}")
     if incident_desc:
         lines.append(f"Incident Description: {incident_desc}")
+
     if damage_desc:
-        lines.append(f"\nDamage Claims:\n{damage_desc}")
-    if injuries:
+        # Filter out negative observations — only keep positive damage claims
+        positive_damage_lines = [
+            line for line in damage_desc.split("\n")
+            if is_positive_claim(line)
+        ]
+        if positive_damage_lines:
+            lines.append(f"\nDamage Claims:\n" + "\n".join(positive_damage_lines))
+
+    # Only include injury claims if they are positive (injury actually occurred)
+    if injuries and is_positive_claim(injuries):
         lines.append(f"\nInjury Claims: {injuries}")
-    if additional:
-        lines.append(f"\nAdditional Claims: {additional}")
+
+    # additional_information is intentionally excluded entirely
+    # It contains observations (fluid leaks, towing) not verifiable visual claims
 
     return "\n".join(lines)

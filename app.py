@@ -841,6 +841,7 @@ with generate_tab:
                             claim_document=edited_claim,
                             report=val_report,
                             elapsed_seconds=elapsed_v,
+                            schema=st.session_state.wizard_schema,
                         )
                         st.download_button(
                             label="📄 Download Combined Claim + Validation PDF",
