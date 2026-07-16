@@ -25,7 +25,12 @@ from src.claim_generation.claim_generator import (
 from src.classification.document_classifier import classify_document
 from src.eval.evaluator import run_evaluation, format_report
 from src.reporting.report_generator import generate_pdf_report, generate_combined_pdf_report
-from src.claim_generation.claim_generator import prefill_from_evidence, generate_claim_document
+from src.claim_generation.claim_generator import (
+    analyze_scene,
+    prefill_for_selected_vehicle,
+    generate_claim_document,
+    build_validation_text,
+)
 from src.claim_generation.form_schema import CAR_INSURANCE_CLAIM_SCHEMA, SECTIONS, get_fields_for_section
 import copy
 
