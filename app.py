@@ -31,6 +31,14 @@ from src.claim_generation.claim_generator import (
     generate_claim_document,
     build_validation_text,
 )
+from src.claim_generation.claim_generator import (
+    analyze_scene,
+    prefill_for_selected_vehicle,
+    generate_claim_document,
+    build_validation_text,
+    generate_case_suggestions,
+    CaseImprovementSuggestions,
+)
 from src.claim_generation.form_schema import CAR_INSURANCE_CLAIM_SCHEMA, SECTIONS, get_fields_for_section
 import copy
 
@@ -852,6 +860,48 @@ with generate_tab:
                         )
                     except Exception as e:
                         st.error(f"Combined PDF failed: {e}")
+
+                # ── Case improvement suggestions ──────────
+                    st.markdown("---")
+                    st.subheader("💡 How to Strengthen Your Case")
+                    st.markdown(
+                        "Based on your claim and validation results, "
+                        "here is what our AI advisor recommends:"
+                    )
+
+                    with st.spinner("Generating case improvement suggestions..."):
+                        try:
+                            text_client_s = TextModelClient()
+                            suggestions = generate_case_suggestions(
+                                text_client_s,
+                                st.session_state.wizard_schema,
+                                val_report.claim_verdicts,
+                            )
+
+                            st.info(
+                                f"**Overall Assessment:**\n\n"
+                                f"{suggestions.overall_assessment}"
+                            )
+
+                            if suggestions.evidence_gaps:
+                                st.warning("**Evidence Gaps Detected:**")
+                                for gap in suggestions.evidence_gaps:
+                                    st.markdown(f"⚠️ {gap}")
+
+                            if suggestions.suggestions:
+                                st.success("**Specific Suggestions:**")
+                                for s in suggestions.suggestions:
+                                    st.markdown(f"✅ {s}")
+
+                            if suggestions.recommended_next_steps:
+                                st.markdown("**Recommended Next Steps:**")
+                                for i, step_text in enumerate(
+                                    suggestions.recommended_next_steps, 1
+                                ):
+                                    st.markdown(f"{i}. {step_text}")
+
+                        except Exception as e:
+                            st.warning(f"Could not generate suggestions: {e}")
 
                 st.markdown("---")
                 if st.button("🔄 Start Over", use_container_width=True):

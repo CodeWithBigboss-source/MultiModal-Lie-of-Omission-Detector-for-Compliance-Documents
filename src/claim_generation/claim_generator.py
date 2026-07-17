@@ -54,28 +54,35 @@ insurance evidence photographs.
 
 STEP 1 — COUNT AND IDENTIFY ALL VEHICLES IN THE IMAGE:
 List every vehicle visible. For each one state:
-- vehicle_label: descriptive name (e.g. "Blue sedan on the left")
+- vehicle_label: describe by CAMERA FRAME POSITION only, never by vehicle left/right.
+  Use: "left side of frame", "right side of frame", "center of frame", "background".
+  Include color and make/model if visible.
+  Example: "Dark blue BMW (right side of frame)"
+  Example: "Red pickup truck (left side of frame, partial view)"
+  NEVER say "driver side" or "passenger side" — you cannot determine these from a photo.
 - color: vehicle color
-- position_in_frame: where it is in the frame
-- damage_visible: true/false
-- damage_summary: one sentence describing its damage or "No damage visible"
+- position_in_frame: left side of frame / right side of frame / center / background
+- damage_visible: true only if clear physical damage is visible on THIS vehicle
+- damage_summary: one specific sentence describing visible damage, or "No damage visible"
+  Only describe damage on THIS specific vehicle, not reflections or shadows.
+
+IMPORTANT: Background vehicles that are parked and undamaged should be listed with
+damage_visible: false. Only set damage_visible: true if you can clearly see 
+deformation, breakage, or displacement on that vehicle.
 
 Set multiple_vehicles_detected to true if more than one vehicle is present.
 
 STEP 2 — GENERAL OBSERVATIONS:
-ai_observations: State the camera angle, list ALL vehicles present, describe the 
-accident scene. Include which vehicles show damage and how severe. Be specific.
-Example: "Front-left angle showing a two-vehicle collision on a road surface. 
-The blue sedan (left) has severe front-end damage with crumpled hood and displaced 
-front bumper. The dark grey vehicle (right) shows severe door panel deformation 
-on the driver side with visible structural buckling."
+ai_observations: State the camera angle, list ALL vehicles by their frame position,
+describe which ones show damage. Be specific about frame position.
+Example: "Front angle showing a severely damaged dark blue BMW on the right side of 
+the frame. A red truck is partially visible on the left side of the frame with no 
+visible damage — appears to be parked nearby."
 
-For the remaining fields — leave them ALL as null for now.
-They will be filled once the user identifies which vehicle is theirs.
+Leave all other fields as null.
 
 Return JSON matching the required schema exactly.
 """
-
 
 VEHICLE_DAMAGE_PROMPT = """You are a forensic vehicle damage assessor.
 The user has identified their vehicle as: {selected_vehicle}
@@ -105,6 +112,10 @@ incident_description: Write 3-4 professional sentences starting with:
   "Based on the visible damage pattern, the {selected_vehicle} sustained..."
   Include: which side was impacted, likely direction of force, severity assessment,
   whether the vehicle appears roadworthy, and any safety concerns observed.
+  Note: Use camera frame position to describe the vehicle
+  (e.g. "the dark blue BMW on the right side of the frame") --
+  never say "driver side" or "passenger side" since these cannot
+  be confirmed from a photograph alone.
 
 vehicle_make_model: Identify make/model of {selected_vehicle} if possible.
 vehicle_year: Estimate year range if identifiable.
@@ -302,3 +313,99 @@ def build_validation_text(schema: list[FormField]) -> str:
     # It contains observations (fluid leaks, towing) not verifiable visual claims
 
     return "\n".join(lines)
+
+class CaseImprovementSuggestions(BaseModel):
+    overall_assessment: str
+    suggestions: list[str]
+    evidence_gaps: list[str]
+    recommended_next_steps: list[str]
+
+
+SUGGESTION_PROMPT = """You are an experienced insurance claims advisor reviewing 
+a completed claim form and its validation results.
+
+Based on the claim data and validation verdicts below, provide specific, actionable 
+suggestions to help the claimant strengthen their case.
+
+RULES:
+- Only suggest things that are genuinely missing or weak based on the actual data
+- Never invent problems that aren't evidenced by the verdicts
+- Be specific — say exactly which photo angles or documents would help
+- If a claim is already Supported with high confidence, do not suggest changes for it
+- Focus on claims that are Insufficient Evidence or Missing Expected Evidence
+- Keep suggestions practical and achievable for a regular person
+
+Claim Summary:
+{claim_summary}
+
+Validation Results:
+{validation_results}
+
+Return JSON with:
+- overall_assessment: one paragraph honestly assessing the strength of this claim
+- suggestions: list of specific things the claimant should add or photograph
+- evidence_gaps: list of specific regions/components not visible in submitted evidence
+- recommended_next_steps: ordered list of what to do next to strengthen the claim
+"""
+
+
+def generate_case_suggestions(
+    text_client: TextModelClient,
+    schema: list[FormField],
+    claim_verdicts: list,
+) -> CaseImprovementSuggestions:
+    """
+    Analyzes completed claim + validation verdicts and suggests improvements.
+    Only called after validation is complete.
+    """
+    # Build claim summary
+    damage = next(
+        (f.value for f in schema if f.key == "damage_description" and f.value), ""
+    )
+    vehicle = next(
+        (f.value for f in schema if f.key == "vehicle_make_model" and f.value), ""
+    )
+    incident = next(
+        (f.value for f in schema if f.key == "incident_description" and f.value), ""
+    )
+
+    claim_summary = f"Vehicle: {vehicle}\nIncident: {incident}\nDamage claimed:\n{damage}"
+
+    # Build validation results summary
+    verdict_lines = []
+    for cv in claim_verdicts:
+        if isinstance(cv, dict):
+            verdict    = cv.get("verdict", "")
+            claim_text = cv.get("claim_text", "")
+            confidence = cv.get("confidence", 0)
+            explanation = cv.get("explanation", "")
+        else:
+            verdict     = cv.verdict.value
+            claim_text  = cv.claim_text
+            confidence  = cv.confidence
+            explanation = cv.explanation or ""
+
+        verdict_lines.append(
+            f"- [{verdict}] ({confidence:.0%}): {claim_text}\n  Reason: {explanation}"
+        )
+
+    validation_results = "\n".join(verdict_lines)
+
+    prompt = SUGGESTION_PROMPT.format(
+        claim_summary=claim_summary,
+        validation_results=validation_results,
+    )
+
+    try:
+        result = text_client.structured_call(
+            prompt=prompt,
+            response_schema=CaseImprovementSuggestions,
+        )
+        return result
+    except Exception as e:
+        return CaseImprovementSuggestions(
+            overall_assessment="Could not generate suggestions at this time.",
+            suggestions=[],
+            evidence_gaps=[],
+            recommended_next_steps=["Consult your insurance company directly."],
+        )
