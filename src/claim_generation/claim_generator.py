@@ -85,50 +85,56 @@ Return JSON matching the required schema exactly.
 """
 
 VEHICLE_DAMAGE_PROMPT = """You are a forensic vehicle damage assessor.
-The user has identified their vehicle as: {selected_vehicle}
+The user has selected THIS specific vehicle for their insurance claim: "{selected_vehicle}"
 
-Based on the image, fill in the following fields FOR THAT SPECIFIC VEHICLE ONLY.
-Do not include damage from other vehicles in damage_description.
+STEP 1 — LOCATE THE SELECTED VEHICLE IN THE IMAGE:
+Find "{selected_vehicle}" in the image.
+Describe exactly where it is in the camera frame.
 
-damage_description: Detailed bullet points for every damaged component on 
-{selected_vehicle}. Format each bullet as:
-"- [Component name]: [damage type] — [severity] — [functional impact]"
-Example:
-"- Front left door panel: severely crumpled and buckled inward — severe — 
-  structural integrity compromised, door likely non-functional
-- Driver side mirror: displaced and misaligned — moderate — 
-  visibility impaired
-- Side skirt beneath front door: crushed inward approximately 3-4 inches — 
-  severe — aerodynamic and structural damage"
+STEP 2 — ASSESS WHETHER THIS VEHICLE HAS VISIBLE DAMAGE:
+Look ONLY at "{selected_vehicle}".
+Does it show any physical damage? (deformation, cracks, displaced parts, broken glass)
 
-Include EVERY damaged component visible on the selected vehicle.
-Never include damage from the other vehicle(s).
+If NO damage is visible on "{selected_vehicle}":
+- Set damage_description to exactly: "No visible damage observed on {selected_vehicle} in the submitted evidence. This vehicle appears undamaged."
+- Set incident_type to: "No damage visible in submitted evidence"
+- Set incident_description to: "The {selected_vehicle} does not show any visible damage in the submitted photograph. If damage exists, please submit additional photographs from different angles."
+- Set all other fields to null
+- Do NOT describe damage from any other vehicle
 
-incident_type: Choose from:
-  Head-On Collision / Side Impact Collision / Rear-End Collision /
-  Multi-Point Collision / T-Bone Collision / Parking Damage / Unknown
+If YES damage is visible on "{selected_vehicle}":
+STEP 3 — DOCUMENT DAMAGE ON THE SELECTED VEHICLE ONLY:
+For every damaged component on "{selected_vehicle}" write one bullet:
+"- [Component] on {selected_vehicle}: [damage type] -- [severity] -- [functional impact]"
 
-incident_description: Write 3-4 professional sentences starting with:
-  "Based on the visible damage pattern, the {selected_vehicle} sustained..."
-  Include: which side was impacted, likely direction of force, severity assessment,
-  whether the vehicle appears roadworthy, and any safety concerns observed.
-  Note: Use camera frame position to describe the vehicle
-  (e.g. "the dark blue BMW on the right side of the frame") --
-  never say "driver side" or "passenger side" since these cannot
-  be confirmed from a photograph alone.
+Example for a damaged vehicle:
+"- Front bumper on Dark blue BMW (right side of frame): severely crumpled and detached -- severe -- structural integrity compromised
+- Hood on Dark blue BMW (right side of frame): buckled upward and displaced -- severe -- engine compartment exposed"
 
-vehicle_make_model: Identify make/model of {selected_vehicle} if possible.
-vehicle_year: Estimate year range if identifiable.
-damage_other_vehicles: ONLY fill this if another vehicle was DIRECTLY involved 
-in the collision with {selected_vehicle}. You need CLEAR visual evidence of 
-direct contact between the two vehicles — shared deformation points, overlapping 
-damage, or vehicles physically interlocked. If another vehicle is simply parked 
-nearby, in the background, or in a parking lot without clear collision evidence, 
-write exactly: "No other vehicles confirmed as involved in this incident." 
-Never assume a parked or stationary background vehicle is involved in the accident.
-injury_description: Note airbag deployment or injury indicators on {selected_vehicle}.
-additional_information: Fluid leaks, total loss indicators, towing requirement.
-ai_observations: Complete scene description including both vehicles.
+CRITICAL RULES:
+1. NEVER describe damage from a vehicle OTHER than "{selected_vehicle}"
+2. If "{selected_vehicle}" appears undamaged, say so explicitly — do NOT invent damage
+3. Include the vehicle identifier "{selected_vehicle}" in EVERY damage bullet point
+4. Use camera frame position (left side of frame / right side of frame) not driver/passenger side
+5. Other vehicles: only mention them if they show DIRECT COLLISION CONTACT with 
+   "{selected_vehicle}" — overlapping metal, shared impact point, interlocked parts.
+   If another vehicle is parked or stationary with no contact evidence, write:
+   "No other vehicles confirmed as directly involved in this incident."
+
+Fill these fields FOR {selected_vehicle} ONLY:
+- damage_description: bullet points as described above, or no-damage statement
+- incident_type: Head-On / Side Impact / Rear-End / Multi-Point / T-Bone / 
+  Parking Damage / No Damage Visible / Unknown
+- incident_description: 3-4 sentences about {selected_vehicle} specifically.
+  Use camera frame position. Start with vehicle identifier.
+- vehicle_make_model: make/model of {selected_vehicle} if identifiable
+- vehicle_year: year range estimate
+- damage_other_vehicles: only if direct collision contact confirmed, else
+  "No other vehicles confirmed as directly involved in this incident."
+- injury_description: airbag deployment or injury signs on {selected_vehicle} only
+- additional_information: fluid leaks, total loss indicators for {selected_vehicle}
+- ai_observations: complete scene description with ALL vehicles by frame position,
+  clearly stating which has damage and which does not
 
 Return JSON matching the required schema exactly.
 """
@@ -177,7 +183,10 @@ def prefill_for_selected_vehicle(
     selected_vehicle: str,
     base_result: AIPrefilledFields,
 ) -> tuple[list[FormField], str]:
-    """Step 2: Fill claim fields for the user-selected vehicle."""
+    """
+    Fill claim fields ONLY for the user-selected vehicle.
+    If that vehicle shows no damage, fields reflect that honestly.
+    """
 
     class _DamageFields(BaseModel):
         incident_type: Optional[str] = None
@@ -209,6 +218,7 @@ def prefill_for_selected_vehicle(
     )
 
     schema = copy.deepcopy(CAR_INSURANCE_CLAIM_SCHEMA)
+
     ai_values = {
         "incident_type":          result.incident_type,
         "incident_description":   result.incident_description,
