@@ -31,6 +31,8 @@ from src.claim_generation.claim_generator import (
     generate_claim_document,
     build_validation_text,
 )
+from src.policy.policies import POLICIES, get_policy_labels, get_policy_text
+from src.policy.validator import validate_against_policy, PolicyValidationReport
 from src.claim_generation.claim_generator import (
     analyze_scene,
     prefill_for_selected_vehicle,
@@ -89,6 +91,9 @@ defaults = {
     "generated_claim_doc":     "",
     "gen_validation_report":   None,
     "gen_validation_elapsed":  0,
+
+    "selected_policy":        "ireland_aig",
+    "policy_report":          None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -134,6 +139,20 @@ with st.sidebar:
     st.markdown("### Verdict guide")
     for verdict, (icon, _, desc) in VERDICT_CONFIG.items():
         st.markdown(f"{icon} **{verdict}** — {desc}")
+
+    st.markdown("---")
+    st.markdown("### Policy Selection")
+    policy_options = get_policy_labels()
+    selected_policy = st.selectbox(
+        "Select insurance policy",
+        options=list(policy_options.keys()),
+        format_func=lambda k: policy_options[k],
+        key="policy_selector",
+    )
+    st.session_state.selected_policy = selected_policy
+
+    with st.expander("📖 Read selected policy", expanded=False):
+        st.markdown(get_policy_text(selected_policy))
 
 # ── Main title ────────────────────────────────────────────────
 st.title("🔍 Compliance Evidence Analyzer")
@@ -774,8 +793,6 @@ with generate_tab:
                     with st.spinner("Validating claim points against evidence..."):
                         start_v = time.time()
                         try:
-                            # Use focused validation text from schema fields
-                            # not the full verbose claim document
                             validation_text = build_validation_text(
                                 st.session_state.wizard_schema
                             )
@@ -798,6 +815,23 @@ with generate_tab:
                         except Exception as e:
                             st.error(f"Validation failed: {e}")
                             st.stop()
+
+                    # Policy validation — separate spinner, runs after evidence validation
+                    with st.spinner("Running policy compliance check..."):
+                        try:
+                            text_client_p  = TextModelClient()
+                            policy_key     = st.session_state.get("selected_policy", "ireland_aig")
+                            policy_text    = get_policy_text(policy_key)
+                            policy_report  = validate_against_policy(
+                                text_client_p,
+                                val_report.claim_verdicts,
+                                policy_key,
+                                policy_text,
+                            )
+                            st.session_state.policy_report = policy_report
+                        except Exception as e:
+                            st.warning(f"Policy check failed: {e}")
+                            st.session_state.policy_report = None
 
                 if st.session_state.get("gen_validation_report"):
                     val_report = st.session_state.gen_validation_report
@@ -850,6 +884,7 @@ with generate_tab:
                             report=val_report,
                             elapsed_seconds=elapsed_v,
                             schema=st.session_state.wizard_schema,
+                            policy_report=st.session_state.get("policy_report"),
                         )
                         st.download_button(
                             label="📄 Download Combined Claim + Validation PDF",
@@ -860,6 +895,50 @@ with generate_tab:
                         )
                     except Exception as e:
                         st.error(f"Combined PDF failed: {e}")
+                # Policy compliance results
+                    if st.session_state.get("policy_report"):
+                        pr = st.session_state.policy_report
+                        st.markdown("---")
+                        st.subheader(f"📋 Policy Compliance — {pr.policy_name}")
+
+                        RECOMMEND_COLORS = {
+                            "PROCEED":         "success",
+                            "LIKELY_REJECTED":  "error",
+                            "PARTIAL":          "warning",
+                            "NEEDS_MORE_INFO":  "warning",
+                        }
+                        color = RECOMMEND_COLORS.get(
+                            pr.overall_recommendation, "info"
+                        )
+                        getattr(st, color)(
+                            f"**Overall Recommendation: {pr.overall_recommendation}**\n\n"
+                            f"{pr.overall_reasoning}"
+                        )
+
+                        if pr.critical_flags:
+                            st.error("**Critical Flags:**")
+                            for flag in pr.critical_flags:
+                                st.markdown(f"🚩 {flag}")
+
+                        st.markdown("**Per-Claim Policy Assessment:**")
+                        DECISION_ICONS = {
+                            "COVERED":           "✅",
+                            "EXCLUDED":          "❌",
+                            "CONDITIONAL":       "🔶",
+                            "INSUFFICIENT_INFO": "⚠️",
+                        }
+                        for i, assessment in enumerate(pr.claim_assessments, 1):
+                            icon = DECISION_ICONS.get(assessment.policy_decision, "❓")
+                            with st.expander(
+                                f"Claim {i} — {icon} {assessment.policy_decision} "
+                                f"({assessment.policy_clause_cited})",
+                                expanded=True
+                            ):
+                                st.markdown(f"**Claim:** {assessment.claim_text}")
+                                st.markdown(f"**Policy Reasoning:** {assessment.policy_reasoning}")
+                                st.markdown(f"**Action Required:** {assessment.recommended_action}")
+
+
 
                 # ── Case improvement suggestions ──────────
                     st.markdown("---")

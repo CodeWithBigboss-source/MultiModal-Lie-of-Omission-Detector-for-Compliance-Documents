@@ -8,6 +8,7 @@ since Helvetica only supports latin-1 range characters.
 from fpdf import FPDF
 from datetime import datetime
 from src.utils.schemas import ComplianceReport
+from src.policy.validator import PolicyValidationReport
 
 
 def sanitize(text: str) -> str:
@@ -227,6 +228,7 @@ def generate_combined_pdf_report(
     report: ComplianceReport,
     elapsed_seconds: float = 0,
     schema: list = None,
+    policy_report=None,
 ) -> bytes:
     """
     Generates a single PDF containing:
@@ -455,6 +457,10 @@ def generate_combined_pdf_report(
         pdf.set_draw_color(220, 220, 220)
         pdf.line(15, pdf.get_y(), 195, pdf.get_y())
         pdf.ln(4)
+    
+    # Part 3 — Policy assessment (optional)
+    if policy_report is not None:
+        add_policy_section_to_pdf(pdf, policy_report)
 
     return bytes(pdf.output())
 
@@ -569,3 +575,108 @@ def generate_claim_form_pdf(
             pdf.multi_cell(180, 6, sanitize(line))
 
     return bytes(pdf.output())
+
+def add_policy_section_to_pdf(
+    pdf: CompliancePDF,
+    policy_report: "PolicyValidationReport",
+) -> None:
+    """
+    Adds Part 3 — Policy Compliance Assessment to an existing PDF.
+    Called after Part 2 is written in generate_combined_pdf_report.
+    """
+    DECISION_COLORS = {
+        "COVERED":           (200, 240, 200),
+        "EXCLUDED":          (255, 200, 200),
+        "CONDITIONAL":       (255, 240, 200),
+        "INSUFFICIENT_INFO": (220, 220, 220),
+    }
+
+    RECOMMENDATION_COLORS = {
+        "PROCEED":          (20,  120, 40),
+        "LIKELY_REJECTED":  (180, 20,  20),
+        "PARTIAL":          (180, 100, 0),
+        "NEEDS_MORE_INFO":  (80,  80,  80),
+    }
+
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 14)
+    r, g, b = RECOMMENDATION_COLORS.get(
+        policy_report.overall_recommendation, (50, 50, 50)
+    )
+    pdf.set_fill_color(r, g, b)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 13, "  PART 3 - POLICY COMPLIANCE ASSESSMENT", fill=True, ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    # Policy and recommendation header
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(50, 7, "Policy Applied:", border=0)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 7, sanitize(policy_report.policy_name), ln=True)
+
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(50, 7, "Overall Recommendation:", border=0)
+    pdf.set_font("Helvetica", "B", 10)
+    r, g, b = RECOMMENDATION_COLORS.get(
+        policy_report.overall_recommendation, (50, 50, 50)
+    )
+    pdf.set_text_color(r, g, b)
+    pdf.cell(0, 7, sanitize(policy_report.overall_recommendation), ln=True)
+    pdf.set_text_color(0, 0, 0)
+
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_fill_color(245, 245, 245)
+    pdf.set_x(15)
+    pdf.multi_cell(180, 6, sanitize(policy_report.overall_reasoning), fill=True)
+    pdf.ln(4)
+
+    # Critical flags
+    if policy_report.critical_flags:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_fill_color(255, 220, 220)
+        pdf.cell(0, 8, "  CRITICAL FLAGS", fill=True, ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        for flag in policy_report.critical_flags:
+            pdf.set_x(15)
+            pdf.multi_cell(180, 6, sanitize(f"! {flag}"))
+        pdf.ln(4)
+
+    # Per-claim assessments
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "Per-Claim Policy Assessment", ln=True)
+    pdf.ln(2)
+
+    for i, assessment in enumerate(policy_report.claim_assessments, 1):
+        r, g, b = DECISION_COLORS.get(assessment.policy_decision, (240, 240, 240))
+        pdf.set_fill_color(r, g, b)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(
+            0, 9,
+            sanitize(f"  Claim {i}: {assessment.policy_decision} -- {assessment.policy_clause_cited}"),
+            fill=True, ln=True
+        )
+
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 6, "Claim:", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(15)
+        pdf.multi_cell(180, 6, sanitize(assessment.claim_text))
+
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 6, "Policy Reasoning:", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(15)
+        pdf.multi_cell(180, 6, sanitize(assessment.policy_reasoning))
+
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(0, 6, "Recommended Action:", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_x(15)
+        pdf.multi_cell(180, 6, sanitize(assessment.recommended_action))
+
+        pdf.ln(4)
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(4)
