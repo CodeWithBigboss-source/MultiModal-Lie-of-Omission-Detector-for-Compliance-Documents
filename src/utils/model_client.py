@@ -17,8 +17,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 T = TypeVar("T", bound=BaseModel)
 
-TEXT_MODEL   = "llama-3.3-70b-versatile"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# TEXT_MODEL   = "llama-3.3-70b-versatile"
+# VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# TEXT_MODEL   = "openai/gpt-oss-120b"
+# VISION_MODEL = "qwen/qwen3.6-27b"
+TEXT_MODEL   = "openai/gpt-oss-20b"
+VISION_MODEL = "qwen/qwen3.6-27b"
 
 
 class RetryableError(Exception):
@@ -113,12 +117,14 @@ class VisionModelClient:
             elif isinstance(part, str):
                 content.append({"type": "text", "text": part})
 
-        # Append schema instruction at the end
+        # /no-think suppresses qwen3.6 thinking mode for faster responses
+        # Return ONLY JSON — no think tags, no markdown
         content.append({
             "type": "text",
             "text": (
-                f"\nReturn ONLY valid JSON matching this schema — "
-                f"no markdown, no backticks:\n{schema_json}"
+                f"\n/no-think\n"
+                f"Return ONLY valid JSON matching this schema — "
+                f"no markdown, no backticks, no think tags:\n{schema_json}"
             )
         })
 
@@ -135,7 +141,21 @@ class VisionModelClient:
                 raise RetryableError(str(e)) from e
             raise
 
-        raw = response.choices[0].message.content.strip()
-        cleaned = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        data = json.loads(cleaned)
-        return response_schema.model_validate(data)
+        raw = self._call(prompt_parts, response_schema)
+
+        # qwen3.6-27b outputs <think>...</think> tokens before JSON
+        # Strip them before parsing
+        import re
+        raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
+
+        cleaned = (
+            raw.strip()
+            .removeprefix("```json")
+            .removeprefix("```")
+            .removesuffix("```")
+            .strip()
+        )
+        # raw = response.choices[0].message.content.strip()
+        # cleaned = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        # data = json.loads(cleaned)
+        # return response_schema.model_validate(data)

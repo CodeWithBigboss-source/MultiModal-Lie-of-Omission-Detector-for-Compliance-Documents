@@ -30,43 +30,43 @@ class _GroundingOnly(BaseModel):
     image_quality_flag: Optional[str]
 
 
-GROUNDING_PROMPT_TEMPLATE = """You are a forensic evidence reviewer. Study the image carefully before reading anything below.
+GROUNDING_PROMPT_TEMPLATE = """You are a forensic evidence reviewer. Study the image carefully.
 
-═══ STEP 1 — IDENTIFY CAMERA ANGLE AND FRAME BOUNDARIES ═══
-Before anything else, answer:
-- What is the primary camera angle? (e.g. front-left, left side, rear-right, etc.)
-- List ONLY the vehicle components that are PHYSICALLY WITHIN this camera frame.
-- Explicitly state what is NOT visible: "The right side is not visible. The rear is not visible."
+CRITICAL ORIENTATION RULE:
+Describe ALL positions using CAMERA FRAME POSITION only.
+- Use: "left side of frame", "right side of frame", "center of frame", "top of frame"
+- NEVER use: "driver side", "passenger side", "vehicle's left", "vehicle's right"
+- The camera angle determines what "left" and "right" mean — not the vehicle's orientation
+- What appears on the RIGHT side of the photo IS the right side. State it as such.
 
-This step is mandatory. Do not skip it.
+STEP 1 — MAP THE CAMERA FRAME:
+Before reading the claim, answer:
+- What is the camera angle? (front-left, right side, rear, etc. using frame position)
+- Which vehicle components are PHYSICALLY VISIBLE within this frame?
+- What components are NOT visible / outside the frame?
+- What damage is visible on each component? Be specific.
 
-═══ STEP 2 — EVALUATE THE CLAIM ═══
+STEP 2 — EVALUATE THE CLAIM:
 Claim: "{claim_text}"
-Region to verify: "{expected_region}"
+Expected region: "{expected_region}"
 
-Using ONLY your Step 1 list of visible components:
+Using ONLY your Step 1 frame map:
+- Is the expected region within the camera frame?
+  fully_visible / partially_visible / not_visible
+- If not_visible: matches_claim MUST be null. Do not guess.
+- If visible and confirms claim: matches_claim = true
+- If visible and contradicts claim: matches_claim = false
+- If visible but ambiguous: matches_claim = null
 
-HARD RULES — these override everything else:
-- If the expected region was NOT in your Step 1 visible list → region_visibility = not_visible
-- If region_visibility = not_visible → matches_claim MUST be null. No exceptions. Ever.
-- You CANNOT infer the condition of a region that is outside the camera frame.
-- Seeing one side of a vehicle tells you NOTHING about the opposite side.
-- Do not write phrases like "part of X is visible at the edge" unless it is literally at the pixel edge of the frame.
+HARD RULES:
+1. Do NOT need full vehicle in frame. If the claimed part is visible, that is enough.
+2. NEVER infer condition of parts outside the frame.
+3. If claim says damage exists and you clearly see that damage: matches_claim = true
+4. Region clearly absent from frame: certainty 0.85-0.95
+5. Region visible and condition clearly matches: certainty 0.85-0.95
 
-IF REGION IS VISIBLE:
-- Describe exactly what you see in that specific region
-- matches_claim = true if condition matches the claim
-- matches_claim = false if condition directly contradicts the claim
-- matches_claim = null if genuinely ambiguous
-
-CONFIDENCE RULES:
-- Region clearly absent from frame → certainty 0.90 (you are sure it is not there)
-- Region clearly visible and condition clearly matches → certainty 0.85-0.95
-- Region partially visible or condition ambiguous → certainty 0.50-0.70
-- Never inflate confidence when uncertain
-
-description_of_what_is_seen: Write your Step 1 frame analysis here — 
-list what IS visible and explicitly state what is NOT visible.
+description_of_what_is_seen: Write your complete Step 1 frame map here.
+Use camera frame positions throughout (left of frame, right of frame, etc.)
 image_quality_flag: blurry / low_resolution / poor_lighting / null
 
 Return JSON matching the required schema exactly.

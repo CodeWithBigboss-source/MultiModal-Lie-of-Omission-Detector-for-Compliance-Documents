@@ -293,3 +293,74 @@ def get_policy_info(policy_key: str) -> dict:
         "insurer":  p["insurer"],
         "currency": p["currency"],
     }
+
+def generate_policy_pdf(policy_key: str) -> bytes:
+    """Generate a downloadable PDF of the selected policy."""
+    from fpdf import FPDF
+
+    policy = POLICIES[policy_key]
+
+    class PolicyPDF(FPDF):
+        def header(self):
+            self.set_font("Helvetica", "B", 12)
+            self.set_fill_color(10, 40, 80)
+            self.set_text_color(255, 255, 255)
+            self.cell(0, 10, f"  {policy['label']} — Policy Document", fill=True, ln=True)
+            self.set_text_color(0, 0, 0)
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, f"Page {self.page_no()} | {policy['insurer']}", align="C")
+
+    def sanitize(text: str) -> str:
+        if not isinstance(text, str):
+            text = str(text)
+        replacements = {
+            "\u2014": "-", "\u2013": "-", "\u2018": "'", "\u2019": "'",
+            "\u201c": '"', "\u201d": '"', "\u2026": "...", "\u2022": "-",
+        }
+        for char, rep in replacements.items():
+            text = text.replace(char, rep)
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
+    pdf = PolicyPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+
+    for line in policy["text"].split("\n"):
+        line = line.strip()
+        if not line:
+            pdf.ln(3)
+        elif line.startswith("## "):
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.set_fill_color(10, 40, 80)
+            pdf.set_text_color(255, 255, 255)
+            pdf.cell(0, 9, sanitize(f"  {line[3:]}"), fill=True, ln=True)
+            pdf.set_text_color(0, 0, 0)
+            pdf.ln(3)
+        elif line.startswith("### "):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_fill_color(40, 80, 140)
+            pdf.set_text_color(255, 255, 255)
+            pdf.cell(0, 8, sanitize(f"  {line[4:]}"), fill=True, ln=True)
+            pdf.set_text_color(0, 0, 0)
+            pdf.ln(2)
+        elif line.startswith("COVERED:") or line.startswith("NOT COVERED"):
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_fill_color(230, 240, 255)
+            pdf.cell(0, 7, sanitize(line), fill=True, ln=True)
+            pdf.set_font("Helvetica", "", 9)
+        elif line.startswith("- ") or line.startswith("YOU MUST"):
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_x(18)
+            pdf.multi_cell(177, 5, sanitize(line))
+        else:
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_x(15)
+            pdf.multi_cell(180, 5, sanitize(line))
+
+    return bytes(pdf.output())

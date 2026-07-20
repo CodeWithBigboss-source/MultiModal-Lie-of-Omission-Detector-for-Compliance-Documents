@@ -141,7 +141,8 @@ with st.sidebar:
         st.markdown(f"{icon} **{verdict}** — {desc}")
 
     st.markdown("---")
-    st.markdown("### Policy Selection")
+    st.markdown("### 📋 Policy Selection")
+    st.caption("Select the policy to validate your claim against.")
     policy_options = get_policy_labels()
     selected_policy = st.selectbox(
         "Select insurance policy",
@@ -151,8 +152,29 @@ with st.sidebar:
     )
     st.session_state.selected_policy = selected_policy
 
+    # Read policy expander
     with st.expander("📖 Read selected policy", expanded=False):
         st.markdown(get_policy_text(selected_policy))
+
+    # Download policy PDF
+    try:
+        from src.policy.policies import generate_policy_pdf
+        policy_pdf = generate_policy_pdf(selected_policy)
+        st.download_button(
+            label="⬇️ Download Policy PDF",
+            data=policy_pdf,
+            file_name=f"{selected_policy}_policy.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as e:
+        st.caption(f"Policy PDF unavailable: {e}")
+
+    st.markdown("---")
+    st.markdown(
+        f"**Active policy:** {policy_options[selected_policy]}"
+    )
+    st.caption("This policy will be used for claim validation.")
 
 # ── Main title ────────────────────────────────────────────────
 st.title("🔍 Compliance Evidence Analyzer")
